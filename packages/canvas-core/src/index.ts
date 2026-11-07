@@ -35,3 +35,4 @@ export { Selection } from './tools/Selection';
 export { PenTool } from './tools/PenTool';
 
 export { CanvasEngine } from './engine/CanvasEngine';
+export type { InputMode } from './input/InputMode';
