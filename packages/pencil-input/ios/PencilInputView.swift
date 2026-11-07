@@ -133,7 +133,7 @@ class PencilInputView: ExpoView {
     ]
     if touch.type == .pencil {
       if touch.maximumPossibleForce > 0 {
-        s["pressure"] = min(1.0, max(0.0, Double(touch.force / touch.maximumPossibleForce)))
+        s["pressure"] = PencilInputView.pressure(force: Double(touch.force), maxForce: Double(touch.maximumPossibleForce))
       }
       let tilt = PencilInputView.tilt(
         altitude: Double(touch.altitudeAngle),
@@ -148,6 +148,16 @@ class PencilInputView: ExpoView {
       }
     }
     return s
+  }
+
+  /// Calibrated 0..1 pressure. UIKit's force is 1.0 for an average touch and
+  /// tops out near 4.17 on Apple Pencil, so force / maxForce leaves normal
+  /// writing (force 0.5 to 1.5) squeezed into 0.1 to 0.35. The square root
+  /// spreads it so average writing lands near 0.5 (the same midpoint as web
+  /// PointerEvent pressure) while a full press still reaches 1.
+  static func pressure(force: Double, maxForce: Double) -> Double {
+    let normalized = min(1.0, max(0.0, force / maxForce))
+    return normalized.squareRoot()
   }
 
   /// Converts UIKit's altitude and azimuth into W3C-style tiltX / tiltY in
