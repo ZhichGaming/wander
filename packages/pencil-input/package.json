@@ -1,0 +1,13 @@
+{
+  "name": "@wander/pencil-input",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native Apple Pencil and touch input view for the Wander canvas (iOS). Reports pressure, tilt, coalesced and predicted samples.",
+  "main": "index.ts",
+  "types": "index.ts",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@wander/canvas-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wander canvas engine renderer and input: Skia drawing, gestures and the CanvasView component.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@wander/canvas-core": "*",
+    "@wander/pencil-input": "*"
+  },
+  "peerDependencies": {
+    "@shopify/react-native-skia": "*",
+    "react": "*",
+    "react-native": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-reanimated": "*",
+    "react-native-worklets": "*"
+  }
+}
