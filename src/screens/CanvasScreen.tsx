@@ -6,7 +6,7 @@
  * src/ui and the shell in src/shell replace it.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -19,6 +19,8 @@ import {
   LassoTool,
   PenTool,
   deleteSelection,
+  isPencilInputAvailable,
+  pointerSessionFor,
   type DocumentJSON,
   type Tool,
 } from '../canvas-engine';
@@ -27,6 +29,36 @@ import {
 interface DevAction {
   label: string;
   run: () => void;
+}
+
+/**
+ * Developer readout of the Apple Pencil input: which input path is active
+ * and the latest pressure and lean, updated at most ten times a second.
+ */
+function PencilReadout({ engine }: { engine: CanvasEngine }) {
+  const [text, setText] = useState('no Pencil input yet');
+  useEffect(() => {
+    let last = 0;
+    return pointerSessionFor(engine).penSample.on((s) => {
+      const now = Date.now();
+      if (now - last < 100) return;
+      last = now;
+      const pressure = s.pressure === undefined ? 'none' : s.pressure.toFixed(2);
+      const lean =
+        s.tiltX === undefined || s.tiltY === undefined
+          ? 'none'
+          : `${Math.round((Math.atan(Math.hypot(Math.tan(s.tiltX), Math.tan(s.tiltY))) * 180) / Math.PI)} deg`;
+      setText(`pressure ${pressure}, lean ${lean}`);
+    });
+  }, [engine]);
+  const path = isPencilInputAvailable ? 'native Pencil input' : 'Gesture Handler input (no pressure or tilt)';
+  return (
+    <Text style={styles.readout}>
+      {path}
+      {'\n'}
+      {text}
+    </Text>
+  );
 }
 
 /** Full-screen layout: canvas on the left, retractable sidebar on the right. */
@@ -77,6 +109,7 @@ export default function CanvasScreen() {
               <Text style={styles.buttonText}>{a.label}</Text>
             </Pressable>
           ))}
+          <PencilReadout engine={engine} />
         </View>
       </View>
       <View style={styles.sidebar}>
@@ -106,6 +139,7 @@ const styles = StyleSheet.create({
   },
   active: { backgroundColor: '#dbe7ff', borderColor: '#5b8def' },
   buttonText: { color: '#333', fontSize: 13 },
+  readout: { color: '#666', fontSize: 11, alignSelf: 'center', marginLeft: 6 },
   sidebar: {
     width: 320,
     borderLeftWidth: StyleSheet.hairlineWidth,

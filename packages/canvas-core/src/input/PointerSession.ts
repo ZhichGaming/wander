@@ -45,6 +45,7 @@
  *   contact flushes (commits) a deferred up first.
  */
 
+import { Emitter } from '../Emitter';
 import type { Vec2 } from '../math/geometry';
 import type { CanvasEngine } from '../engine/CanvasEngine';
 import type { PointerInput, PointerKind, PointerSampleUpdate } from '../tools/Tool';
@@ -167,6 +168,11 @@ export class PointerSession {
   private readonly engine: CanvasEngine;
   private mode: InputMode;
   private penSeen = false;
+  /**
+   * Fires with every pen sample (after corrections too), so tools or a
+   * diagnostics readout can show live pressure and tilt.
+   */
+  readonly penSample = new Emitter<RawPointerSample>();
   private readonly contacts = new Map<number, Contact>();
   private nav: NavBaseline | null = null;
   private readonly setTimer: SetTimer;
@@ -196,6 +202,7 @@ export class PointerSession {
 
   /** Handles one raw pointer event. This is the main entry point. */
   handle(e: RawPointerEvent): void {
+    if (e.kind === 'pen') this.penSample.emit(e);
     switch (e.phase) {
       case 'down':
         this.onDown(e);

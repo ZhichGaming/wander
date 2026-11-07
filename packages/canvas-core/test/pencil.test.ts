@@ -11,6 +11,8 @@ import {
   PointerSession,
   Stroke,
   boundsOfPoints,
+  DEFAULT_PEN_STYLE,
+  PenBrush,
   type RawPointerEvent,
   type RawPointerSample,
 } from '../src';
@@ -97,5 +99,15 @@ describe('Apple Pencil input', () => {
     const copy = new CanvasEngine();
     copy.load(JSON.parse(JSON.stringify(engine.save())));
     expect(onlyStroke(copy).points[3].tiltX).toBeCloseTo(0.3);
+  });
+
+  it('spreads light and firm writing at least 2x apart in width', () => {
+    // Calibrated Pencil pressure: sqrt(force / 4.17) for force 0.3 (light) and 2.0 (firm).
+    const width = (pressure: number) => {
+      const pts = Array.from({ length: 60 }, (_, i) => ({ x: i * 2, y: 0, pressure, time: i * 16 }));
+      const b = boundsOfPoints(new PenBrush().outline(pts, DEFAULT_PEN_STYLE, true));
+      return b.maxY - b.minY;
+    };
+    expect(width(Math.sqrt(2 / 4.17)) / width(Math.sqrt(0.3 / 4.17))).toBeGreaterThan(2);
   });
 });

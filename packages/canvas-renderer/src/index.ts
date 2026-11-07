@@ -12,3 +12,4 @@ export { ensureSkiaWeb } from './render/loadSkiaWeb';
 export { useCanvasWheel } from './input/useCanvasWheel';
 export { pointerSessionFor } from './input/pointerSessionFor';
 export { GestureTouchAdapter } from './input/GestureTouchAdapter';
+export { isPencilInputAvailable } from '@wander/pencil-input';
