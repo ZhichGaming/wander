@@ -11,7 +11,7 @@ npm install
 npx expo start
 ```
 
-The iPad app uses a native module, so it needs a development build, not Expo Go: `npx expo run:ios` (Simulator or a cabled iPad) or `npx eas-cli@latest build --profile development`. Then scan the QR code with the Wander dev client. Press `w` for the web build (desktop fallback).
+Apple Pencil pressure and tilt come from a native module, so they need a development build (Expo Go still runs the app, without pressure or tilt): `npx expo run:ios` (Simulator or a cabled iPad) or `npx eas-cli@latest build --profile development`. Then scan the QR code with the Wander dev client. Press `w` for the web build (desktop fallback).
 
 ## Layout
 

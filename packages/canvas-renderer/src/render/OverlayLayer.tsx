@@ -7,18 +7,19 @@
  * re-render while the user draws.
  */
 
-import { DashPathEffect, Path, Skia, type SkPath } from '@shopify/react-native-skia';
+import { DashPathEffect, Path, Shader, Skia, type SkPath } from '@shopify/react-native-skia';
 import {
   getBrush,
   isEmptyRect,
   type CameraState,
   type CanvasEngine,
   type OverlayState,
-  type StrokeStyle,
+  type LiveStroke,
   type Vec2,
 } from '@wander/canvas-core';
 import { useEffect, useState } from 'react';
 import { useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import { graphiteEffect, graphiteUniforms } from './graphite';
 import { outlineToSkPath } from './strokePath';
 
 /** Color of lasso, eraser and selection outlines. */
@@ -36,11 +37,12 @@ export interface OverlayLayerProps {
   dragOffset: SharedValue<Vec2>;
 }
 
-/** Look of the live stroke; changes only when a new stroke starts. */
+/** Look of the live stroke; changes only when a new stroke starts or its brush opacity changes. */
 interface LiveLook {
   color: string;
   opacity: number;
   multiply: boolean;
+  graphite: boolean;
 }
 
 /** An empty path. */
@@ -69,9 +71,17 @@ function eraserPath(state: OverlayState): SkPath {
   return Skia.PathBuilder.Make().addCircle(center.x, center.y, radius).detach();
 }
 
-/** Look of a stroke style, for comparing and drawing. */
-function lookOf(style: StrokeStyle): LiveLook {
-  return { color: style.color, opacity: style.opacity, multiply: getBrush(style.brush).blendMode === 'multiply' };
+/** Look of the live stroke, for comparing and drawing. */
+function lookOf(live: LiveStroke): LiveLook {
+  const brush = getBrush(live.style.brush);
+  // Rounded so a pencil's tilt-driven opacity does not re-render every sample.
+  const opacity = Math.round(live.style.opacity * brush.opacity(live.points, live.style) * 20) / 20;
+  return {
+    color: live.style.color,
+    opacity,
+    multiply: brush.blendMode === 'multiply',
+    graphite: brush.texture === 'graphite',
+  };
 }
 
 /** Live stroke, lasso, eraser cursor and selection outline. */
@@ -85,12 +95,20 @@ export function OverlayLayer({ engine, camera, dragOffset }: OverlayLayerProps) 
   useEffect(() => {
     /** Rebuilds every overlay path from the overlay state. */
     const onOverlay = (state: OverlayState) => {
-      live.value = liveStrokePath(state);
+      // When the stroke ends, leave the old path in place: the Path element is
+      // unmounted by setLook(null) in the same React commit that adds the
+      // committed ink, so the stroke never disappears for a frame.
+      if (state.liveStroke) live.value = liveStrokePath(state);
       lasso.value = lassoPath(state);
       eraser.value = eraserPath(state);
-      const next = state.liveStroke ? lookOf(state.liveStroke.style) : null;
+      const next = state.liveStroke ? lookOf(state.liveStroke) : null;
       setLook((prev) =>
-        prev && next && prev.color === next.color && prev.opacity === next.opacity && prev.multiply === next.multiply
+        prev &&
+        next &&
+        prev.color === next.color &&
+        prev.opacity === next.opacity &&
+        prev.multiply === next.multiply &&
+        prev.graphite === next.graphite
           ? prev
           : next,
       );
@@ -137,7 +155,11 @@ export function OverlayLayer({ engine, camera, dragOffset }: OverlayLayerProps) 
           color={look.color}
           opacity={look.opacity}
           blendMode={look.multiply ? 'multiply' : 'srcOver'}
-        />
+        >
+          {look.graphite && graphiteEffect() && (
+            <Shader source={graphiteEffect()!} uniforms={graphiteUniforms(look.color)} />
+          )}
+        </Path>
       )}
       <Path path={selection} transform={selectionTransform} style="stroke" strokeWidth={guideWidth} color={GUIDE_COLOR}>
         <DashPathEffect intervals={dashes} />

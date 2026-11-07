@@ -114,7 +114,14 @@ export class SceneController {
     this.unsubscribeDoc();
     this.unsubscribeDoc = this.doc.changed.on((change) => {
       this.cache.applyChange(change);
-      if (change.kind !== 'background') this.schedule();
+      if (change.kind === 'background') return;
+      // A newly drawn stroke is published at once, in the same tick as the
+      // live stroke is cleared, so the two swap in one React commit with no
+      // empty frame between them. Other edits (erasing, moving) coalesce
+      // per animation frame.
+      const isNewInk = change.kind === 'objects' && change.added.length > 0 && change.removed.length === 0;
+      if (isNewInk) this.rebuildNow();
+      else this.schedule();
     });
   }
 
@@ -182,6 +189,13 @@ export class SceneController {
       this.frame = null;
       this.rebuild();
     });
+  }
+
+  /** Rebuilds immediately, dropping any rebuild already scheduled. */
+  private rebuildNow(): void {
+    if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.frame = null;
+    this.rebuild();
   }
 
   /** Records the scene for the current cull window and publishes it. */
