@@ -6,5 +6,5 @@
  * false.
  */
 
-export { PencilInputView, isPencilInputAvailable } from './src/PencilInputView';
+export { PencilInputView, NativePencilInputView, isPencilInputAvailable } from './src/PencilInputView';
 export type * from './src/PencilInput.types';

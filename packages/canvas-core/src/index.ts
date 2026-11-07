@@ -41,6 +41,8 @@ export { PenBrush } from './brush/PenBrush';
 export { HighlighterBrush } from './brush/HighlighterBrush';
 export { PencilBrush, shadeAmount } from './brush/PencilBrush';
 export { outlineToSvgPath, dotOutline, isSinglePoint } from './brush/outlinePath';
+export { brushOutline, brushOpacity } from './brush/liveOutline';
+export { freehandOutline, type FreehandInput, type FreehandOptions } from './brush/freehand';
 
 export { EraserTool, DEFAULT_ERASER_OPTIONS, type EraserMode, type EraserOptions } from './tools/EraserTool';
 export { SplitStroke } from './commands/EraseCommands';

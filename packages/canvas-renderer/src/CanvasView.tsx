@@ -5,22 +5,38 @@
  * committed ink as cached pictures and the live tool overlay on top. Input
  * comes from the native PencilInputView on iOS (Pencil pressure, tilt,
  * coalesced and predicted samples) and from useCanvasGesture elsewhere;
- * both feed the engine's PointerSession.
+ * both feed the engine's PointerSession. On iOS the native events are
+ * handled on the UI thread first, so live ink is drawn in the same frame
+ * the touch arrives (see useLiveInkInput). Committed pictures are shared
+ * values too, so a committed stroke and the clearing of its live ink reach
+ * the UI thread together.
  */
 
-import { Canvas, Group, Picture } from '@shopify/react-native-skia';
+import { Canvas, Group, Picture, Skia, type SkPicture } from '@shopify/react-native-skia';
 import type { BackgroundStyle, CameraState, CanvasEngine, InputMode, Vec2 } from '@wander/canvas-core';
-import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
-import { useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
-import { isPencilInputAvailable, PencilInputView, type NativePointerEvent } from '@wander/pencil-input';
+import Animated, { useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import { isPencilInputAvailable, NativePencilInputView } from '@wander/pencil-input';
 import { pointerSessionFor } from './input/pointerSessionFor';
 import { useCanvasGesture } from './input/useCanvasGesture';
 import { useCanvasWheel } from './input/useCanvasWheel';
+import { useInkConfig, useLiveInkHandler } from './input/useLiveInkInput';
+import { emptyInk, type InkConfig, type InkState } from './render/liveInk';
 import { BackgroundLayer } from './render/BackgroundLayer';
 import { OverlayLayer } from './render/OverlayLayer';
-import { SceneController, type ScenePictures } from './render/SceneController';
+import { SceneController } from './render/SceneController';
+
+/** The native touch view wrapped so Reanimated can handle its events on the UI thread. */
+const AnimatedPencilInput = NativePencilInputView ? Animated.createAnimatedComponent(NativePencilInputView) : null;
+
+/** A picture with nothing in it. */
+function emptyPicture(): SkPicture {
+  const recorder = Skia.PictureRecorder();
+  recorder.beginRecording(Skia.XYWHRect(0, 0, 1, 1));
+  return recorder.finishRecordingAsPicture();
+}
 
 /** Props of CanvasView. */
 export interface CanvasViewProps {
@@ -71,7 +87,10 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
   const background = useBackground(engine);
   const size = useSharedValue({ width: 0, height: 0 });
   const dragOffset = useSharedValue<Vec2>({ x: 0, y: 0 });
-  const [pictures, setPictures] = useState<ScenePictures>({ scene: null, dragPreview: null });
+  const scene = useSharedValue<SkPicture>(emptyPicture());
+  const dragPreview = useSharedValue<SkPicture>(emptyPicture());
+  const ink = useSharedValue<InkState>(emptyInk());
+  const inkConfig = useSharedValue<InkConfig>({ style: null, stylusRules: false });
   const controller = useRef<SceneController | null>(null);
   // Plain copy of the layout size: on native, onLayout can fire before the
   // controller exists, and a shared value written on the JS thread does not
@@ -80,19 +99,22 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
   const gesture = useCanvasGesture(engine, { mode: inputMode });
   const viewRef = useRef<ComponentRef<typeof View>>(null);
   const session = pointerSessionFor(engine);
-  /** Forwards native touch events to the engine's PointerSession. */
-  const onNativePointer = useCallback(
-    (events: NativePointerEvent[]) => {
-      for (const e of events) session.handle(e);
-    },
-    [session],
-  );
+  const syncInkConfig = useInkConfig(engine, session, inkConfig);
+  const onInputSamples = useLiveInkHandler(engine, session, ink, inkConfig, camera, syncInkConfig);
   useCanvasWheel(engine, viewRef);
 
   useEffect(() => {
-    const c = new SceneController(engine, setPictures, (offset) => {
-      dragOffset.value = offset;
-    });
+    const empty = emptyPicture();
+    const c = new SceneController(
+      engine,
+      (pictures) => {
+        scene.value = pictures.scene ?? empty;
+        dragPreview.value = pictures.dragPreview ?? empty;
+      },
+      (offset) => {
+        dragOffset.value = offset;
+      },
+    );
     controller.current = c;
     const { width, height } = layoutSize.current;
     if (width > 0) c.setViewSize(width, height);
@@ -100,7 +122,7 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
       c.dispose();
       controller.current = null;
     };
-  }, [engine, size, dragOffset]);
+  }, [engine, size, dragOffset, scene, dragPreview]);
 
   /** Records the view size for the background and for viewport culling. */
   const onLayout = (e: LayoutChangeEvent) => {
@@ -126,17 +148,20 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
       <Canvas style={styles.fill}>
         <BackgroundLayer background={background} camera={camera} size={size} />
         <Group transform={cameraTransform}>
-          {pictures.scene && <Picture picture={pictures.scene} />}
-          {pictures.dragPreview && (
-            <Group transform={dragTransform}>
-              <Picture picture={pictures.dragPreview} />
-            </Group>
-          )}
-          <OverlayLayer engine={engine} camera={camera} dragOffset={dragOffset} />
+          <Picture picture={scene} />
+          <Group transform={dragTransform}>
+            <Picture picture={dragPreview} />
+          </Group>
+          <OverlayLayer engine={engine} camera={camera} dragOffset={dragOffset} ink={ink} />
         </Group>
       </Canvas>
-      {isPencilInputAvailable && (
-        <PencilInputView style={StyleSheet.absoluteFill} onPointerEvents={onNativePointer} />
+      {AnimatedPencilInput && (
+        <AnimatedPencilInput
+          style={StyleSheet.absoluteFill}
+          // A Reanimated worklet handler receives the native payload directly;
+          // the prop's type describes a JS synthetic event, hence the cast.
+          onInputSamples={onInputSamples as never}
+        />
       )}
     </View>
   );

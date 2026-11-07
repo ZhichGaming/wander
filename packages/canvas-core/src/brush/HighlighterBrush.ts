@@ -2,14 +2,32 @@
  * Wander — Zhich, Yu, Justin
  * Highlighter brush: flat, constant width, multiplied onto ink beneath it
  * and drawn in an earlier pass so pen ink stays crisp on top. Opacity comes
- * from the stroke style and is applied by the renderer.
+ * from the stroke style and is applied by the renderer. The outline is a
+ * worklet function so the live stroke can be drawn on the UI thread.
  */
 
-import { getStroke, type StrokeOptions } from 'perfect-freehand';
 import type { Vec2 } from '../math/geometry';
 import type { StrokePoint, StrokeStyle } from '../model/StrokeStyle';
 import type { Brush } from './Brush';
+import { freehandOutline } from './freehand';
 import { dotOutline, isSinglePoint } from './outlinePath';
+
+/** Constant-width outline with flat ends; pressure is ignored. Worklet. */
+export function highlighterOutline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
+  'worklet';
+  if (points.length === 0) return [];
+  if (isSinglePoint(points)) return dotOutline(points[0], style.width / 2);
+  const input = points.map((p) => ({ x: p.x, y: p.y, pressure: 0.5 }));
+  return freehandOutline(input, {
+    size: style.width,
+    thinning: 0,
+    smoothing: 0.5,
+    streamline: 0.5,
+    capStart: false,
+    capEnd: false,
+    last: complete,
+  });
+}
 
 /** Flat translucent highlighter. */
 export class HighlighterBrush implements Brush {
@@ -23,21 +41,8 @@ export class HighlighterBrush implements Brush {
     return 1;
   }
 
-  /** Constant-width outline with flat ends; pressure is ignored. */
+  /** Constant-width outline with flat ends (see highlighterOutline). */
   outline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
-    if (points.length === 0) return [];
-    if (isSinglePoint(points)) return dotOutline(points[0], style.width / 2);
-    const options: StrokeOptions = {
-      size: style.width,
-      thinning: 0,
-      smoothing: 0.5,
-      streamline: 0.5,
-      simulatePressure: false,
-      start: { cap: false },
-      end: { cap: false },
-      last: complete,
-    };
-    const input = points.map((p) => ({ x: p.x, y: p.y }));
-    return getStroke(input, options).map(([x, y]) => ({ x, y }));
+    return highlighterOutline(points, style, complete);
   }
 }

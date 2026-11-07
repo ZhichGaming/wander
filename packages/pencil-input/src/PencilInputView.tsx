@@ -23,6 +23,14 @@ const NativeView: ComponentType<NativeProps> | null = isPencilInputAvailable
   ? requireNativeView('WanderPencilInput')
   : null;
 
+/**
+ * The raw native component (null when unavailable). Its `onInputSamples`
+ * event carries `{ events: NativePointerEvent[] }`; wrap it with
+ * Reanimated's createAnimatedComponent to handle that event on the UI
+ * thread.
+ */
+export const NativePencilInputView = NativeView;
+
 /** Transparent view that reports every touch with Pencil pressure and tilt; renders nothing when unavailable. */
 export function PencilInputView({ onPointerEvents, style }: PencilInputViewProps) {
   if (!NativeView) return null;

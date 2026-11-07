@@ -13,3 +13,6 @@ export const isPencilInputAvailable = false;
 export function PencilInputView(_props: PencilInputViewProps) {
   return null;
 }
+
+/** No raw native component on this platform. */
+export const NativePencilInputView = null;

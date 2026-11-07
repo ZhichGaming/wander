@@ -70,7 +70,19 @@ app (src/)  ──>  @wander/canvas-renderer  ──>  @wander/canvas-core
   over the viewport plus a margin and rebuilt only when the view leaves it.
 - No empty frame on release: `PenTool` commits before clearing the live
   stroke, `SceneController` rebuilds at once for newly added ink, and the
-  live path is unmounted in the same React commit that adds the picture.
+  committed pictures are shared values, so the new picture and the
+  clearing of that stroke's live ink reach the UI thread together.
+- Live ink runs on the UI thread. On iOS, Reanimated's `useEvent` handles
+  the native view's `onInputSamples` event on the UI thread
+  (`useLiveInkInput`): it extends the shared live-ink state (`liveInk.ts`)
+  and the derived path redraws in the same frame the touch arrives, then
+  the events are forwarded to `PointerSession` on the JavaScript thread,
+  which still decides what is committed. The brush math is written as
+  worklet functions (`penOutline`, `pencilOutline`, `highlighterOutline`,
+  `brushOutline`) over a vendored, worklet-safe copy of perfect-freehand
+  (`freehand.ts`, MIT, tested to match the library exactly), so live and
+  committed ink come from the same code. On web and in Expo Go the
+  overlay mirrors PenTool's live stroke into the same state instead.
 - `OverlayLayer` draws the live stroke, lasso, eraser cursor and selection
   box from shared values, so drawing does not re-render the ink.
 - `BackgroundLayer` draws the infinite grid, dots or lines for the visible
@@ -97,9 +109,9 @@ app (src/)  ──>  @wander/canvas-renderer  ──>  @wander/canvas-core
 
 ## Known limits
 
-- Pencil input crosses to the JS thread once per display frame (all
-  coalesced samples batched); it does not yet feed a UI-thread worklet
-  directly, so the live stroke trails the Pencil by about two frames.
+- The UI thread mirrors PointerSession's draw rules to decide which
+  contact starts live ink; when they disagree (rare multi-touch cases),
+  JavaScript's cancel or commit clears the UI stroke.
 - Pressure and tilt need a development build; Expo Go still runs, with
   Gesture Handler input only.
 - `PageObject` supports move and uniform scale, not rotation; PDF `/Rotate`

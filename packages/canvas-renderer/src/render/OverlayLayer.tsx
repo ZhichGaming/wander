@@ -1,26 +1,31 @@
 /**
  * Wander — Zhich, Yu, Justin
  * Draws transient tool feedback on top of the ink, in world space inside
- * the camera transform: the stroke being drawn, the lasso polygon, the
- * eraser cursor and the selection bounds. Geometry lives in shared values
- * that are replaced at input rate, so the committed-ink layers never
- * re-render while the user draws.
+ * the camera transform: the live ink, the lasso polygon, the eraser cursor
+ * and the selection bounds. The live ink's path is derived on the UI thread
+ * from the shared live-ink state (see liveInk.ts), which native input
+ * extends directly; this component mirrors JavaScript-driven strokes into
+ * that state and clears strokes once PenTool commits or cancels them.
  */
 
 import { DashPathEffect, Path, Shader, Skia, type SkPath } from '@shopify/react-native-skia';
 import {
+  DEFAULT_PEN_STYLE,
   getBrush,
   isEmptyRect,
+  PenTool,
   type CameraState,
   type CanvasEngine,
   type OverlayState,
-  type LiveStroke,
+  type StrokeStyle,
   type Vec2,
 } from '@wander/canvas-core';
 import { useEffect, useState } from 'react';
 import { useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import { scheduleOnUI } from 'react-native-worklets';
+import { uiOwnedInkKeys } from '../input/useLiveInkInput';
 import { graphiteEffect, graphiteUniforms } from './graphite';
-import { outlineToSkPath } from './strokePath';
+import { clearInkStroke, inkOpacity, inkPath, upsertJsStroke, type InkState, type InkStroke } from './liveInk';
 
 /** Color of lasso, eraser and selection outlines. */
 const GUIDE_COLOR = '#2f6fed';
@@ -35,12 +40,13 @@ export interface OverlayLayerProps {
   camera: SharedValue<CameraState>;
   /** World offset of a selection being dragged; the selection outline follows it. */
   dragOffset: SharedValue<Vec2>;
+  /** Shared live-ink state (written by native input and by this component). */
+  ink: SharedValue<InkState>;
 }
 
-/** Look of the live stroke; changes only when a new stroke starts or its brush opacity changes. */
+/** Paint of the live ink, taken from the drawing tool's style. */
 interface LiveLook {
   color: string;
-  opacity: number;
   multiply: boolean;
   graphite: boolean;
 }
@@ -48,14 +54,6 @@ interface LiveLook {
 /** An empty path. */
 function emptyPath(): SkPath {
   return Skia.Path.Make();
-}
-
-/** Filled outline of the stroke in progress, including predicted points. */
-function liveStrokePath(state: OverlayState): SkPath {
-  const live = state.liveStroke;
-  if (!live) return emptyPath();
-  const points = [...live.points, ...live.predicted];
-  return outlineToSkPath(getBrush(live.style.brush).outline(points, live.style, false));
 }
 
 /** Open polyline through the lasso points. */
@@ -71,47 +69,95 @@ function eraserPath(state: OverlayState): SkPath {
   return Skia.PathBuilder.Make().addCircle(center.x, center.y, radius).detach();
 }
 
-/** Look of the live stroke, for comparing and drawing. */
-function lookOf(live: LiveStroke): LiveLook {
-  const brush = getBrush(live.style.brush);
-  // Rounded so a pencil's tilt-driven opacity does not re-render every sample.
-  const opacity = Math.round(live.style.opacity * brush.opacity(live.points, live.style) * 20) / 20;
-  return {
-    color: live.style.color,
-    opacity,
-    multiply: brush.blendMode === 'multiply',
-    graphite: brush.texture === 'graphite',
-  };
+/** Paint for a stroke style. */
+function lookOf(style: Readonly<StrokeStyle>): LiveLook {
+  const brush = getBrush(style.brush);
+  return { color: style.color, multiply: brush.blendMode === 'multiply', graphite: brush.texture === 'graphite' };
+}
+
+/** Paint of the most recent drawing tool, following tool and style changes. */
+function useToolLook(engine: CanvasEngine): LiveLook {
+  const [look, setLook] = useState<LiveLook>(() =>
+    lookOf(engine.tool instanceof PenTool ? engine.tool.getStyle() : DEFAULT_PEN_STYLE),
+  );
+  useEffect(() => {
+    let offStyle = () => {};
+    /** Tracks the current tool; non-drawing tools keep the last pen look. */
+    const watch = () => {
+      offStyle();
+      offStyle = () => {};
+      const tool = engine.tool;
+      if (!(tool instanceof PenTool)) return;
+      setLook(lookOf(tool.getStyle()));
+      offStyle = tool.styleChanged.on((style) => setLook(lookOf(style)));
+    };
+    watch();
+    const offTool = engine.toolChanged.on(watch);
+    return () => {
+      offStyle();
+      offTool();
+    };
+  }, [engine]);
+  return look;
 }
 
 /** Live stroke, lasso, eraser cursor and selection outline. */
-export function OverlayLayer({ engine, camera, dragOffset }: OverlayLayerProps) {
-  const live = useSharedValue<SkPath>(emptyPath());
+export function OverlayLayer({ engine, camera, dragOffset, ink }: OverlayLayerProps) {
   const lasso = useSharedValue<SkPath>(emptyPath());
   const eraser = useSharedValue<SkPath>(emptyPath());
   const selection = useSharedValue<SkPath>(emptyPath());
-  const [look, setLook] = useState<LiveLook | null>(null);
+  const look = useToolLook(engine);
 
   useEffect(() => {
-    /** Rebuilds every overlay path from the overlay state. */
+    let liveKey: number | null = null;
+    /**
+     * Mirrors PenTool's live stroke into the shared ink state unless the UI
+     * thread already draws it, and clears it once it is committed or
+     * cancelled. PenTool commits before clearing its live stroke, so the
+     * clear is queued to the UI thread right after the committed picture.
+     */
+    const syncLive = (state: OverlayState) => {
+      const live = state.liveStroke;
+      if (live && live.points.length > 0) {
+        const key = live.points[0].time;
+        liveKey = key;
+        if (uiOwnedInkKeys(engine).has(key)) return;
+        const stroke: InkStroke = {
+          key,
+          pointerId: -1,
+          source: 'js',
+          active: true,
+          style: { ...live.style },
+          points: live.points.map((p) => ({ ...p })),
+          predicted: live.predicted.map((p) => ({ ...p })),
+        };
+        scheduleOnUI((s: InkStroke) => {
+          'worklet';
+          ink.modify((v) => {
+            'worklet';
+            upsertJsStroke(v, s);
+            return v;
+          }, true);
+        }, stroke);
+      } else if (liveKey !== null) {
+        const key = liveKey;
+        liveKey = null;
+        uiOwnedInkKeys(engine).delete(key);
+        scheduleOnUI((k: number) => {
+          'worklet';
+          ink.modify((v) => {
+            'worklet';
+            clearInkStroke(v, k);
+            return v;
+          }, true);
+        }, key);
+      }
+    };
+    /** Rebuilds the overlay paths from the overlay state. */
     const onOverlay = (state: OverlayState) => {
-      // When the stroke ends, leave the old path in place: the Path element is
-      // unmounted by setLook(null) in the same React commit that adds the
-      // committed ink, so the stroke never disappears for a frame.
-      if (state.liveStroke) live.value = liveStrokePath(state);
+      syncLive(state);
       lasso.value = lassoPath(state);
       eraser.value = eraserPath(state);
-      const next = state.liveStroke ? lookOf(state.liveStroke) : null;
-      setLook((prev) =>
-        prev &&
-        next &&
-        prev.color === next.color &&
-        prev.opacity === next.opacity &&
-        prev.multiply === next.multiply &&
-        prev.graphite === next.graphite
-          ? prev
-          : next,
-      );
     };
     /** Rebuilds the selection rectangle from the selected objects' bounds. */
     const onSelection = () => {
@@ -138,8 +184,10 @@ export function OverlayLayer({ engine, camera, dragOffset }: OverlayLayerProps) 
       offDoc();
       for (const off of offs) off();
     };
-  }, [engine, live, lasso, eraser, selection]);
+  }, [engine, ink, lasso, eraser, selection]);
 
+  const livePath = useDerivedValue(() => inkPath(ink.value));
+  const liveOpacity = useDerivedValue(() => inkOpacity(ink.value));
   const guideWidth = useDerivedValue(() => GUIDE_WIDTH_PX / camera.value.scale);
   const dashes = useDerivedValue(() => [DASH_PX / camera.value.scale, DASH_PX / camera.value.scale]);
   const selectionTransform = useDerivedValue(() => [
@@ -149,18 +197,11 @@ export function OverlayLayer({ engine, camera, dragOffset }: OverlayLayerProps) 
 
   return (
     <>
-      {look && (
-        <Path
-          path={live}
-          color={look.color}
-          opacity={look.opacity}
-          blendMode={look.multiply ? 'multiply' : 'srcOver'}
-        >
-          {look.graphite && graphiteEffect() && (
-            <Shader source={graphiteEffect()!} uniforms={graphiteUniforms(look.color)} />
-          )}
-        </Path>
-      )}
+      <Path path={livePath} color={look.color} opacity={liveOpacity} blendMode={look.multiply ? 'multiply' : 'srcOver'}>
+        {look.graphite && graphiteEffect() && (
+          <Shader source={graphiteEffect()!} uniforms={graphiteUniforms(look.color)} />
+        )}
+      </Path>
       <Path path={selection} transform={selectionTransform} style="stroke" strokeWidth={guideWidth} color={GUIDE_COLOR}>
         <DashPathEffect intervals={dashes} />
       </Path>

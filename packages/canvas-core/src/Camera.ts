@@ -28,13 +28,15 @@ export function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
 
-/** Pure world-to-screen conversion on plain state (worklet friendly). */
+/** Pure world-to-screen conversion on plain state. Worklet. */
 export function worldToScreen(cam: CameraState, p: Vec2): Vec2 {
+  'worklet';
   return { x: (p.x - cam.x) * cam.scale, y: (p.y - cam.y) * cam.scale };
 }
 
-/** Pure screen-to-world conversion on plain state (worklet friendly). */
+/** Pure screen-to-world conversion on plain state. Worklet. */
 export function screenToWorld(cam: CameraState, p: Vec2): Vec2 {
+  'worklet';
   return { x: p.x / cam.scale + cam.x, y: p.y / cam.scale + cam.y };
 }
 

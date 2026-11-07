@@ -8,6 +8,7 @@
  */
 
 import { CreateObjects } from '../commands/ObjectCommands';
+import { Emitter } from '../Emitter';
 import { Stroke } from '../model/Stroke';
 import { DEFAULT_PEN_STYLE, type StrokePoint, type StrokeStyle } from '../model/StrokeStyle';
 import type { PointerInput, PointerSampleUpdate, Tool, ToolContext } from './Tool';
@@ -23,6 +24,8 @@ function toPoint(e: PointerInput): StrokePoint {
 /** Freehand drawing tool. */
 export class PenTool implements Tool {
   readonly name: string;
+  /** Fires with the new style after setStyle (the renderer mirrors it to the UI thread). */
+  readonly styleChanged = new Emitter<Readonly<StrokeStyle>>();
   private style: StrokeStyle;
   private points: StrokePoint[] | null = null;
   private pointerId = -1;
@@ -45,6 +48,7 @@ export class PenTool implements Tool {
   /** Changes the style for the next stroke. */
   setStyle(style: Partial<StrokeStyle>): void {
     this.style = { ...this.style, ...style };
+    this.styleChanged.emit(this.style);
   }
 
   /** Starts a stroke if the active layer is editable. */

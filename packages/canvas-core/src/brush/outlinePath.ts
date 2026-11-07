@@ -42,6 +42,7 @@ const DOT_SEGMENTS = 16;
  * a lone point by one unit, so brushes draw taps with this instead.
  */
 export function dotOutline(center: Vec2, radius: number): Vec2[] {
+  'worklet';
   const outline: Vec2[] = [];
   for (let i = 0; i < DOT_SEGMENTS; i++) {
     const a = (i / DOT_SEGMENTS) * Math.PI * 2;
@@ -52,5 +53,6 @@ export function dotOutline(center: Vec2, radius: number): Vec2[] {
 
 /** True when every point sits on the first one, as in a tap. */
 export function isSinglePoint(points: readonly Vec2[]): boolean {
+  'worklet';
   return points.every((p) => p.x === points[0].x && p.y === points[0].y);
 }

@@ -28,6 +28,7 @@ export interface PreparedPoint {
  * depend on how many samples the device sends.
  */
 export function smoothedSpeeds(points: readonly StrokePoint[], width: number): number[] {
+  'worklet';
   const speeds: number[] = [];
   let speed = 0;
   for (let i = 0; i < points.length; i++) {
@@ -50,6 +51,7 @@ export function smoothedSpeeds(points: readonly StrokePoint[], width: number): n
  * the next kept point so short presses still count.
  */
 export function resample(points: readonly PreparedPoint[], spacing: number): PreparedPoint[] {
+  'worklet';
   if (points.length <= 2) return [...points];
   const out: PreparedPoint[] = [points[0]];
   let sum = 0;
