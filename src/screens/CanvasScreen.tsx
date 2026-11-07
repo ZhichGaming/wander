@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   CanvasEngine,
   CanvasView,
@@ -33,6 +34,8 @@ export default function CanvasScreen() {
   const [engine] = useState(() => new CanvasEngine());
   const [toolName, setToolName] = useState(engine.tool.name);
   const [saved, setSaved] = useState<string | null>(null);
+  // Keep the toolbar below the status bar, which otherwise takes its taps.
+  const insets = useSafeAreaInsets();
 
   /** Activates `tool` and remembers its label for the toolbar. */
   const select = (label: string, tool: Tool) => {
@@ -61,7 +64,10 @@ export default function CanvasScreen() {
     <View style={styles.root}>
       <View style={styles.canvas}>
         <CanvasView engine={engine} />
-        <View style={styles.toolbar} pointerEvents="box-none">
+        <View
+          style={[styles.toolbar, { top: insets.top + 8, left: insets.left + 12 }]}
+          pointerEvents="box-none"
+        >
           {actions.map((a) => (
             <Pressable
               key={a.label}
@@ -85,8 +91,6 @@ const styles = StyleSheet.create({
   canvas: { flex: 1 },
   toolbar: {
     position: 'absolute',
-    top: 12,
-    left: 12,
     right: 12,
     flexDirection: 'row',
     flexWrap: 'wrap',
