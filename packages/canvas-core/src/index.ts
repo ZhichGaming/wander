@@ -36,3 +36,28 @@ export { PenTool } from './tools/PenTool';
 
 export { CanvasEngine } from './engine/CanvasEngine';
 export type { InputMode } from './input/InputMode';
+
+export { PenBrush } from './brush/PenBrush';
+export { HighlighterBrush } from './brush/HighlighterBrush';
+export { outlineToSvgPath, dotOutline, isSinglePoint } from './brush/outlinePath';
+
+export { EraserTool, DEFAULT_ERASER_OPTIONS, type EraserMode, type EraserOptions } from './tools/EraserTool';
+export { SplitStroke } from './commands/EraseCommands';
+
+export { pointInPolygon, polygonBounds } from './math/polygon';
+export { LassoTool, deleteSelection, objectsInLasso } from './tools/LassoTool';
+
+export { PageObject, type PageJSON, type PageSource, type PageRect } from './model/PageObject';
+export { buildExportPlan, type ExportPlan, type ExportPage, type ExportAnnotation } from './export/exportPlan';
+export { exportAnnotatedPdf, type BytesLoader } from './export/pdfExport';
+
+export {
+  PointerSession,
+  SECOND_FINGER_WINDOW_MS,
+  SECOND_FINGER_SLOP_PX,
+  WHEEL_ZOOM_SPEED,
+  type PointerPhase,
+  type RawPointerSample,
+  type RawPointerEvent,
+  type WheelInput,
+} from './input/PointerSession';
