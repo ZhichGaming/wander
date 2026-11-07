@@ -19,13 +19,22 @@ export interface NativePointerSample {
   /** Lean towards +x and +y in radians, Apple Pencil only. */
   tiltX?: number;
   tiltY?: number;
+  /**
+   * Set while UIKit still expects to correct this Pencil sample's estimated
+   * values (UITouch estimationUpdateIndex); an "update" event with the same
+   * index carries the corrections.
+   */
+  updateIndex?: number;
 }
 
 /** One contact's event, with optional high-rate and predicted samples. */
 export interface NativePointerEvent extends NativePointerSample {
   pointerId: number;
   kind: 'pen' | 'touch' | 'mouse';
-  phase: 'down' | 'move' | 'up' | 'cancel';
+  /** "update" carries corrected values for the sample with `updateIndex`. */
+  phase: 'down' | 'move' | 'up' | 'cancel' | 'update';
+  /** On "update": true when this sample expects no further corrections. */
+  final?: boolean;
   /** Samples since the previous event, oldest first, ending with this one. */
   coalesced?: NativePointerSample[];
   /** UIKit's look-ahead samples; display only. */

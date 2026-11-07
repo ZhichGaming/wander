@@ -34,15 +34,24 @@
  *   and trackpad scrolling go through `wheel`.
  * - A pen always draws, in every mode; in "auto" its first touch switches
  *   the session to stylus rules for good.
+ *
+ * Estimated values (Apple Pencil)
+ * - Samples may carry `updateIndex`: the device will correct their
+ *   pressure, tilt or position later with an "update" event of the same
+ *   index, which goes to the engine as pointerUpdate.
+ * - Corrections can arrive after lift. When a drawing contact lifts with
+ *   corrections still outstanding, its pointerUp is deferred until the last
+ *   final update arrives or ESTIMATE_TIMEOUT_MS passes. A new drawing
+ *   contact flushes (commits) a deferred up first.
  */
 
 import type { Vec2 } from '../math/geometry';
 import type { CanvasEngine } from '../engine/CanvasEngine';
-import type { PointerInput, PointerKind } from '../tools/Tool';
+import type { PointerInput, PointerKind, PointerSampleUpdate } from '../tools/Tool';
 import type { InputMode } from './InputMode';
 
 /** Lifecycle phase of a raw pointer event. */
-export type PointerPhase = 'down' | 'move' | 'up' | 'cancel';
+export type PointerPhase = 'down' | 'move' | 'up' | 'cancel' | 'update';
 
 /** One raw sample in screen space (view pixels). */
 export interface RawPointerSample {
@@ -54,6 +63,11 @@ export interface RawPointerSample {
   tiltY?: number;
   /** Milliseconds, monotonic. */
   time: number;
+  /**
+   * Set while the device still expects to correct this sample's estimated
+   * values; an "update" event with the same index carries the corrections.
+   */
+  updateIndex?: number;
 }
 
 /** One raw pointer event in screen space. */
@@ -70,6 +84,17 @@ export interface RawPointerEvent extends RawPointerSample {
   coalesced?: readonly RawPointerSample[];
   /** Look-ahead samples the device predicts; shown but never committed. */
   predicted?: readonly RawPointerSample[];
+  /** On "update": true when the sample expects no further corrections. */
+  final?: boolean;
+}
+
+/** Schedules `fn` after `ms` milliseconds; returns a function that cancels it. */
+export type SetTimer = (fn: () => void, ms: number) => () => void;
+
+/** Optional dependencies of a PointerSession. */
+export interface PointerSessionOptions {
+  /** Timer used for deferred lifts; defaults to globalThis.setTimeout. */
+  setTimer?: SetTimer;
 }
 
 /** A mouse wheel or trackpad scroll in screen space. */
@@ -90,6 +115,20 @@ export const SECOND_FINGER_WINDOW_MS = 120;
 export const SECOND_FINGER_SLOP_PX = 6;
 /** Zoom factor per wheel pixel: factor = exp(-deltaY * WHEEL_ZOOM_SPEED). */
 export const WHEEL_ZOOM_SPEED = 0.01;
+/** Longest a lift waits for outstanding estimate corrections (ms). */
+export const ESTIMATE_TIMEOUT_MS = 150;
+
+/** setTimeout and clearTimeout as typed globals (core has no DOM or Node types). */
+const timerGlobals = globalThis as unknown as {
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+};
+
+/** Default SetTimer backed by the global setTimeout. */
+function defaultSetTimer(fn: () => void, ms: number): () => void {
+  const handle = timerGlobals.setTimeout(fn, ms);
+  return () => timerGlobals.clearTimeout(handle);
+}
 
 /** What a contact is doing for its whole lifetime. */
 type Role = 'draw' | 'navigate' | 'modifier' | 'ignored';
@@ -115,6 +154,14 @@ interface NavBaseline {
   count: number;
 }
 
+/** A drawing lift waiting for estimate corrections before it commits. */
+interface DeferredUp {
+  pointerId: number;
+  /** The lift sample; corrections addressed to it are applied here. */
+  input: PointerInput;
+  cancelTimer: () => void;
+}
+
 /** Routes raw pointer events to drawing or camera navigation. */
 export class PointerSession {
   private readonly engine: CanvasEngine;
@@ -122,11 +169,19 @@ export class PointerSession {
   private penSeen = false;
   private readonly contacts = new Map<number, Contact>();
   private nav: NavBaseline | null = null;
+  private readonly setTimer: SetTimer;
+  /** updateIndex values still awaiting a final correction, per drawing contact. */
+  private readonly outstanding = new Map<number, Set<number>>();
+  private deferred: DeferredUp | null = null;
 
   /** Creates a session that drives `engine` under input `mode`. */
-  constructor(engine: CanvasEngine, mode: InputMode) {
+  constructor(engine: CanvasEngine, mode: InputMode, options: PointerSessionOptions = {}) {
     this.engine = engine;
     this.mode = mode;
+    this.setTimer = options.setTimer ?? defaultSetTimer;
+    // Undo, redo, tool switches and loads must not drop a lifted stroke
+    // that is still waiting for Pencil corrections: commit it first.
+    engine.flushRequested.on(() => this.flushDeferredUp());
   }
 
   /** Changes the input mode; contacts already down keep their role. */
@@ -154,6 +209,9 @@ export class PointerSession {
       case 'cancel':
         this.onCancel(e.pointerId);
         break;
+      case 'update':
+        this.onUpdate(e);
+        break;
     }
   }
 
@@ -165,6 +223,7 @@ export class PointerSession {
 
   /** Cancels every contact (view unmounted, engine swapped, system cancel). */
   cancelAll(): void {
+    this.flushDeferredUp();
     for (const id of [...this.contacts.keys()]) this.onCancel(id);
   }
 
@@ -182,7 +241,11 @@ export class PointerSession {
     };
     contact.role = this.roleForNewContact(contact);
     this.contacts.set(e.pointerId, contact);
-    if (contact.role === 'draw') this.engine.pointerDown(this.toWorld(e, e.pointerId));
+    if (contact.role === 'draw') {
+      this.flushDeferredUp();
+      this.noteEstimate(e, e.pointerId);
+      this.engine.pointerDown(this.toWorld(e, e.pointerId));
+    }
     if (contact.role === 'navigate') this.resetNav();
   }
 
@@ -242,6 +305,7 @@ export class PointerSession {
     const samples = e.coalesced && e.coalesced.length > 0 ? e.coalesced : [e];
     const predicted = e.predicted?.map((s) => this.toWorld(s, e.pointerId));
     samples.forEach((s, i) => {
+      this.noteEstimate(s, e.pointerId);
       const last = i === samples.length - 1;
       this.engine.pointerMove(this.toWorld(s, e.pointerId), last ? predicted : undefined);
     });
@@ -253,10 +317,59 @@ export class PointerSession {
     if (!c) return;
     if (c.role === 'draw') {
       if (e.coalesced && e.coalesced.length > 0) this.feedMoves({ ...e, predicted: undefined });
-      this.engine.pointerUp(this.toWorld(e, e.pointerId));
+      this.noteEstimate(e, e.pointerId);
+      const input = this.toWorld(e, e.pointerId);
+      if (this.outstanding.has(e.pointerId)) this.deferUp(e.pointerId, input);
+      else this.engine.pointerUp(input);
     }
     this.contacts.delete(e.pointerId);
     if (c.role === 'navigate') this.resetNav();
+  }
+
+  /** Waits for outstanding corrections (or the timeout) before committing. */
+  private deferUp(pointerId: number, input: PointerInput): void {
+    const cancelTimer = this.setTimer(() => {
+      if (this.deferred?.pointerId === pointerId) this.flushDeferredUp();
+    }, ESTIMATE_TIMEOUT_MS);
+    this.deferred = { pointerId, input, cancelTimer };
+  }
+
+  /** Commits a deferred lift now, if there is one. */
+  private flushDeferredUp(): void {
+    const d = this.deferred;
+    if (!d) return;
+    this.deferred = null;
+    d.cancelTimer();
+    this.outstanding.delete(d.pointerId);
+    this.engine.pointerUp(d.input);
+  }
+
+  /** Remembers that sample `s` of a drawing contact awaits corrections. */
+  private noteEstimate(s: RawPointerSample, pointerId: number): void {
+    if (s.updateIndex === undefined) return;
+    let set = this.outstanding.get(pointerId);
+    if (!set) this.outstanding.set(pointerId, (set = new Set()));
+    set.add(s.updateIndex);
+  }
+
+  /** Applies corrected values for a drawing (or deferred) contact's sample. */
+  private onUpdate(e: RawPointerEvent): void {
+    const index = e.updateIndex;
+    const set = this.outstanding.get(e.pointerId);
+    if (index === undefined || !set || !set.has(index)) return;
+    const w = this.engine.camera.screenToWorld(e);
+    const u: PointerSampleUpdate = { updateIndex: index, x: w.x, y: w.y };
+    if (e.pressure !== undefined) u.pressure = e.pressure;
+    if (e.tiltX !== undefined) u.tiltX = e.tiltX;
+    if (e.tiltY !== undefined) u.tiltY = e.tiltY;
+    const d = this.deferred;
+    if (d?.pointerId === e.pointerId && d.input.updateIndex === index) Object.assign(d.input, u);
+    this.engine.pointerUpdate(u);
+    if (!e.final) return;
+    set.delete(index);
+    if (set.size > 0) return;
+    this.outstanding.delete(e.pointerId);
+    if (d?.pointerId === e.pointerId) this.flushDeferredUp();
   }
 
   /** Drops a contact without committing anything. */
@@ -264,6 +377,7 @@ export class PointerSession {
     const c = this.contacts.get(pointerId);
     if (!c) return;
     this.contacts.delete(pointerId);
+    this.outstanding.delete(pointerId);
     if (c.role === 'draw') this.engine.cancelGesture();
     if (c.role === 'navigate') this.resetNav();
   }
@@ -330,6 +444,7 @@ export class PointerSession {
     };
     if (s.tiltX !== undefined) input.tiltX = s.tiltX;
     if (s.tiltY !== undefined) input.tiltY = s.tiltY;
+    if (s.updateIndex !== undefined) input.updateIndex = s.updateIndex;
     return input;
   }
 }

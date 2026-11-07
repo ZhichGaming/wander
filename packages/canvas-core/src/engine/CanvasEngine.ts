@@ -13,7 +13,7 @@ import { deserializeDocument, serializeDocument, type DocumentJSON } from '../se
 import { Overlay } from '../tools/Overlay';
 import { PenTool } from '../tools/PenTool';
 import { Selection } from '../tools/Selection';
-import type { PointerInput, Tool, ToolContext } from '../tools/Tool';
+import type { PointerInput, PointerSampleUpdate, Tool, ToolContext } from '../tools/Tool';
 
 /** Owns the live editing session for one canvas. */
 export class CanvasEngine {
@@ -21,6 +21,12 @@ export class CanvasEngine {
   readonly documentReplaced = new Emitter<CanvasDocument>();
   /** Fires when the active tool changes. */
   readonly toolChanged = new Emitter<Tool>();
+  /**
+   * Fires before undo, redo, a tool switch or a load, so input sources can
+   * commit a lifted stroke they are still holding (PointerSession waits a
+   * moment after lift for Apple Pencil corrections).
+   */
+  readonly flushRequested = new Emitter<void>();
   readonly camera = new Camera();
   readonly selection = new Selection();
   readonly overlay = new Overlay();
@@ -64,6 +70,7 @@ export class CanvasEngine {
 
   /** Switches tools, cancelling any gesture in progress. */
   setTool(tool: Tool): void {
+    this.flushRequested.emit();
     this.cancelGesture();
     this._tool = tool;
     this.toolChanged.emit(tool);
@@ -78,6 +85,11 @@ export class CanvasEngine {
   /** Forwards a pointer-move (with optional predicted samples) to the active tool. */
   pointerMove(e: PointerInput, predicted?: readonly PointerInput[]): void {
     if (this.gestureActive) this._tool.onMove(e, this.ctx, predicted);
+  }
+
+  /** Forwards corrected values for an earlier sample to the active tool. */
+  pointerUpdate(u: PointerSampleUpdate): void {
+    if (this.gestureActive) this._tool.onSampleUpdate?.(u, this.ctx);
   }
 
   /** Forwards a pointer-up to the active tool. */
@@ -96,12 +108,14 @@ export class CanvasEngine {
 
   /** Undoes the last step. */
   undo(): boolean {
+    this.flushRequested.emit();
     this.cancelGesture();
     return this._history.undo();
   }
 
   /** Redoes the last undone step. */
   redo(): boolean {
+    this.flushRequested.emit();
     this.cancelGesture();
     return this._history.redo();
   }
@@ -113,6 +127,7 @@ export class CanvasEngine {
 
   /** Replaces the document with one loaded from JSON and clears history. */
   load(json: DocumentJSON): void {
+    this.flushRequested.emit();
     this.cancelGesture();
     this._doc = deserializeDocument(json);
     this._history = new History(this._doc);

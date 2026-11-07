@@ -1,9 +1,11 @@
 /**
  * Wander — Zhich, Yu, Justin
- * React wrapper for the native PencilInputView (iOS).
+ * React wrapper for the native PencilInputView (iOS). When the app runs
+ * in a binary without this module (Expo Go), the view is unavailable and
+ * the canvas falls back to Gesture Handler input (no pressure or tilt).
  */
 
-import { requireNativeView } from 'expo';
+import { requireNativeView, requireOptionalNativeModule } from 'expo';
 import type { ComponentType } from 'react';
 import type { NativeSyntheticEvent } from 'react-native';
 import type { NativePointerEvent, PencilInputViewProps } from './PencilInput.types';
@@ -14,12 +16,15 @@ interface NativeProps {
   style?: PencilInputViewProps['style'];
 }
 
-const NativeView: ComponentType<NativeProps> = requireNativeView('WanderPencilInput');
+/** True when this binary contains the native module (a development or release build, not Expo Go). */
+export const isPencilInputAvailable = requireOptionalNativeModule('WanderPencilInput') !== null;
 
-/** True on platforms where the native view exists. */
-export const isPencilInputAvailable = true;
+const NativeView: ComponentType<NativeProps> | null = isPencilInputAvailable
+  ? requireNativeView('WanderPencilInput')
+  : null;
 
-/** Transparent view that reports every touch with Pencil pressure and tilt. */
+/** Transparent view that reports every touch with Pencil pressure and tilt; renders nothing when unavailable. */
 export function PencilInputView({ onPointerEvents, style }: PencilInputViewProps) {
+  if (!NativeView) return null;
   return <NativeView style={style} onInputSamples={(e) => onPointerEvents(e.nativeEvent.events)} />;
 }

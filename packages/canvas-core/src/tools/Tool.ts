@@ -34,6 +34,23 @@ export interface PointerInput {
    * add to the selection instead of replacing it.
    */
   additive: boolean;
+  /**
+   * Set when the device will later correct this sample's estimated values
+   * (Apple Pencil); a PointerSampleUpdate with the same index follows.
+   */
+  updateIndex?: number;
+}
+
+/** Corrected values for an earlier sample, in world space. */
+export interface PointerSampleUpdate {
+  /** Matches PointerInput.updateIndex of the corrected sample. */
+  updateIndex: number;
+  x: number;
+  y: number;
+  /** Missing when the device did not report it; keep the old value. */
+  pressure?: number;
+  tiltX?: number;
+  tiltY?: number;
 }
 
 /** Everything a tool may read or change. */
@@ -56,6 +73,11 @@ export interface Tool {
    * device; tools may show them but must not commit them.
    */
   onMove(e: PointerInput, ctx: ToolContext, predicted?: readonly PointerInput[]): void;
+  /**
+   * Corrected values for a sample this gesture already received. Tools that
+   * keep samples apply it; unknown indices must be ignored.
+   */
+  onSampleUpdate?(u: PointerSampleUpdate, ctx: ToolContext): void;
   /** The contact lifted; commit the gesture. */
   onUp(e: PointerInput, ctx: ToolContext): void;
   /** The gesture was interrupted (palm, second finger, tool switch); discard it. */

@@ -6,6 +6,13 @@
 // high-rate coalesced samples between frames (up to 240 Hz on Pencil), and
 // UIKit's predicted samples. Event payloads match the RawPointerEvent shape
 // of @wander/canvas-core's PointerSession, so JavaScript forwards them as is.
+//
+// Estimated properties: UIKit first reports Pencil force, angles and
+// location as estimates and corrects them later (possibly after the touch
+// ended) through touchesEstimatedPropertiesUpdated. Each Pencil sample that
+// still expects corrections carries `updateIndex` (UITouch
+// estimationUpdateIndex); each correction is sent as an event with phase
+// "update", the same `updateIndex`, the corrected values and `final`.
 
 import ExpoModulesCore
 import UIKit
@@ -19,6 +26,13 @@ class PencilInputView: ExpoView {
   private var touchIds: [ObjectIdentifier: Int] = [:]
   private var nextTouchId = 1
 
+  /// Pointer id and timestamp (s) of every sample still expecting
+  /// estimate corrections, keyed by estimationUpdateIndex. Kept past
+  /// touchesEnded because corrections can arrive after lift.
+  private var pendingEstimates: [Int: (pointerId: Int, time: TimeInterval)] = [:]
+  /// Pending entries older than this (s) are dropped if no final update came.
+  private static let estimateLifetime: TimeInterval = 2.0
+
   /// Sets up a transparent view that accepts several simultaneous touches.
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -29,6 +43,7 @@ class PencilInputView: ExpoView {
 
   /// A contact went down.
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    prunePendingEstimates(now: touches.first?.timestamp ?? 0)
     send(touches, event: event, phase: "down")
   }
 
@@ -49,25 +64,54 @@ class PencilInputView: ExpoView {
     forget(touches)
   }
 
+  /// UIKit delivered corrected Pencil values for earlier estimated samples.
+  /// The touches may be the originals or coalesced copies; they are matched
+  /// to samples by estimationUpdateIndex.
+  override func touchesEstimatedPropertiesUpdated(_ touches: Set<UITouch>) {
+    var events: [[String: Any]] = []
+    for touch in touches {
+      guard touch.type == .pencil, let index = touch.estimationUpdateIndex?.intValue,
+            let pending = pendingEstimates[index] else { continue }
+      var payload = sample(touch, pointerId: nil)
+      let final = touch.estimatedPropertiesExpectingUpdates.isEmpty
+      payload["pointerId"] = pending.pointerId
+      payload["kind"] = "pen"
+      payload["phase"] = "update"
+      payload["updateIndex"] = index
+      payload["final"] = final
+      if final { pendingEstimates.removeValue(forKey: index) }
+      events.append(payload)
+    }
+    if !events.isEmpty {
+      onInputSamples(["events": events])
+    }
+  }
+
+  /// Drops pending estimates whose final correction never arrived.
+  private func prunePendingEstimates(now: TimeInterval) {
+    pendingEstimates = pendingEstimates.filter { now - $0.value.time < PencilInputView.estimateLifetime }
+  }
+
   /// Builds one RawPointerEvent per changed touch and dispatches them together.
   private func send(_ touches: Set<UITouch>, event: UIEvent?, phase: String) {
     var events: [[String: Any]] = []
     for touch in touches {
       guard let kind = PencilInputView.kind(of: touch) else { continue }
-      var payload = sample(touch)
-      payload["pointerId"] = id(for: touch)
+      let pointerId = id(for: touch)
+      var payload = sample(touch, pointerId: pointerId)
+      payload["pointerId"] = pointerId
       payload["kind"] = kind
       payload["phase"] = phase
       if phase == "move" || phase == "up", let event = event {
         let coalesced = event.coalescedTouches(for: touch) ?? []
         if coalesced.count > 1 {
-          payload["coalesced"] = coalesced.map { sample($0) }
+          payload["coalesced"] = coalesced.map { sample($0, pointerId: pointerId) }
         }
       }
       if phase == "move", let event = event {
         let predicted = event.predictedTouches(for: touch) ?? []
         if !predicted.isEmpty {
-          payload["predicted"] = predicted.map { sample($0) }
+          payload["predicted"] = predicted.map { sample($0, pointerId: nil) }
         }
       }
       events.append(payload)
@@ -78,7 +122,9 @@ class PencilInputView: ExpoView {
   }
 
   /// Position (view points), time (ms), and for the Pencil pressure and tilt.
-  private func sample(_ touch: UITouch) -> [String: Any] {
+  /// When `pointerId` is given and the Pencil sample still expects estimate
+  /// corrections, adds `updateIndex` and remembers it for the update event.
+  private func sample(_ touch: UITouch, pointerId: Int?) -> [String: Any] {
     let location = touch.type == .pencil ? touch.preciseLocation(in: self) : touch.location(in: self)
     var s: [String: Any] = [
       "x": Double(location.x),
@@ -95,6 +141,11 @@ class PencilInputView: ExpoView {
       )
       s["tiltX"] = tilt.x
       s["tiltY"] = tilt.y
+      if let pointerId = pointerId, !touch.estimatedPropertiesExpectingUpdates.isEmpty,
+         let index = touch.estimationUpdateIndex?.intValue {
+        s["updateIndex"] = index
+        pendingEstimates[index] = (pointerId: pointerId, time: touch.timestamp)
+      }
     }
     return s
   }
