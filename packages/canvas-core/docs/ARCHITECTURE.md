@@ -2,12 +2,15 @@
 
 Team: Zhich, Yu, Justin. Feeds the course design guide.
 
-## Two packages, one direction of dependency
+## Packages, one direction of dependency
 
 ```
 app (src/)  ──>  @wander/canvas-renderer  ──>  @wander/canvas-core
                  Skia, Reanimated, Gesture       pure TypeScript,
                  Handler, CanvasView             no React Native
+                        │
+                        └──>  @wander/pencil-input
+                              native Swift touch view (iOS)
 ```
 
 - **canvas-core** holds every rule about the document: what a stroke is, how
@@ -69,16 +72,28 @@ app (src/)  ──>  @wander/canvas-renderer  ──>  @wander/canvas-core
   box from shared values, so drawing does not re-render the ink.
 - `BackgroundLayer` draws the infinite grid, dots or lines for the visible
   area only, with hairlines snapped to screen pixels.
-- `useCanvasGesture` (Gesture Handler 3 manual gesture, JS thread) and
-  `useCanvasWheel` (web wheel and trackpad) feed `PointerSession`.
+- Input sources, all feeding the one `PointerSession` per engine:
+  - iOS: `@wander/pencil-input`'s `PencilInputView`, a transparent Swift
+    `UIView` laid over the canvas. It reports every touch with Apple Pencil
+    pressure (`force / maximumPossibleForce`), tilt (altitude and azimuth
+    converted to `tiltX` / `tiltY` radians), the coalesced samples between
+    frames (up to 240 Hz) and UIKit's predicted samples. Its events have
+    the same shape as `RawPointerEvent`, so JavaScript forwards them as is.
+  - Web and Android: `useCanvasGesture` (Gesture Handler 3 manual gesture,
+    JS thread), which has no pressure or tilt, and `useCanvasWheel` (web
+    wheel and trackpad).
 - Web: CanvasKit must load before Skia is imported; `index.web.ts` awaits
   `ensureSkiaWeb()` and then imports the app. `canvaskit.wasm` is copied to
   `public/` by the `postinstall` script.
 
 ## Known limits
 
-- Gesture Handler does not expose Apple Pencil pressure or tilt, so pressure
-  is 0.5 until the native Swift Pencil module feeds `PointerSession`.
+- Tilt is recorded on every stroke point and saved, but no brush uses it
+  yet. Pencil "estimated" force and azimuth updates
+  (`touchesEstimatedPropertiesUpdated`) are not applied; the first sample's
+  values are kept.
+- The native view means the iOS app needs a development build (EAS or
+  `npx expo run:ios`); it no longer runs in Expo Go.
 - `PageObject` supports move and uniform scale, not rotation; PDF `/Rotate`
   pages are not yet handled in export.
 - Pen speed-thinning constants are first guesses; tune on a real iPad.

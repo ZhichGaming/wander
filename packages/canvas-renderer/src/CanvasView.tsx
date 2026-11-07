@@ -3,15 +3,19 @@
  * The canvas component. Draws one CanvasEngine with Skia: the paper
  * background in screen space, then, inside a single camera transform, the
  * committed ink as cached pictures and the live tool overlay on top. Input
- * comes from useCanvasGesture; the component itself only renders.
+ * comes from the native PencilInputView on iOS (Pencil pressure, tilt,
+ * coalesced and predicted samples) and from useCanvasGesture elsewhere;
+ * both feed the engine's PointerSession.
  */
 
 import { Canvas, Group, Picture } from '@shopify/react-native-skia';
 import type { BackgroundStyle, CameraState, CanvasEngine, InputMode, Vec2 } from '@wander/canvas-core';
-import { useEffect, useRef, useState, type ComponentRef } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import { isPencilInputAvailable, PencilInputView, type NativePointerEvent } from '@wander/pencil-input';
+import { pointerSessionFor } from './input/pointerSessionFor';
 import { useCanvasGesture } from './input/useCanvasGesture';
 import { useCanvasWheel } from './input/useCanvasWheel';
 import { BackgroundLayer } from './render/BackgroundLayer';
@@ -69,8 +73,20 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
   const dragOffset = useSharedValue<Vec2>({ x: 0, y: 0 });
   const [pictures, setPictures] = useState<ScenePictures>({ scene: null, dragPreview: null });
   const controller = useRef<SceneController | null>(null);
+  // Plain copy of the layout size: on native, onLayout can fire before the
+  // controller exists, and a shared value written on the JS thread does not
+  // read back synchronously there, so the controller is seeded from this.
+  const layoutSize = useRef({ width: 0, height: 0 });
   const gesture = useCanvasGesture(engine, { mode: inputMode });
   const viewRef = useRef<ComponentRef<typeof View>>(null);
+  const session = pointerSessionFor(engine);
+  /** Forwards native touch events to the engine's PointerSession. */
+  const onNativePointer = useCallback(
+    (events: NativePointerEvent[]) => {
+      for (const e of events) session.handle(e);
+    },
+    [session],
+  );
   useCanvasWheel(engine, viewRef);
 
   useEffect(() => {
@@ -78,7 +94,8 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
       dragOffset.value = offset;
     });
     controller.current = c;
-    if (size.value.width > 0) c.setViewSize(size.value.width, size.value.height);
+    const { width, height } = layoutSize.current;
+    if (width > 0) c.setViewSize(width, height);
     return () => {
       c.dispose();
       controller.current = null;
@@ -89,6 +106,7 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     size.value = { width, height };
+    layoutSize.current = { width, height };
     controller.current?.setViewSize(width, height);
   };
 
@@ -117,10 +135,13 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
           <OverlayLayer engine={engine} camera={camera} dragOffset={dragOffset} />
         </Group>
       </Canvas>
+      {isPencilInputAvailable && (
+        <PencilInputView style={StyleSheet.absoluteFill} onPointerEvents={onNativePointer} />
+      )}
     </View>
   );
 
-  if (!gesture) return content;
+  if (!gesture || isPencilInputAvailable) return content;
   return <GestureDetector gesture={gesture}>{content}</GestureDetector>;
 }
 

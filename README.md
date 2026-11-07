@@ -11,7 +11,7 @@ npm install
 npx expo start
 ```
 
-Scan the QR code with the Wander dev client on your iPad. Press `w` for the web build (desktop fallback).
+The iPad app uses a native module, so it needs a development build, not Expo Go: `npx expo run:ios` (Simulator or a cabled iPad) or `npx eas-cli@latest build --profile development`. Then scan the QR code with the Wander dev client. Press `w` for the web build (desktop fallback).
 
 ## Layout
 
@@ -19,6 +19,7 @@ Scan the QR code with the Wander dev client on your iPad. Press `w` for the web 
 | --- | --- | --- |
 | `packages/canvas-core/` | Engine core: document, camera, strokes, tools, undo, save/load, PDF export. Pure TypeScript, vitest. See `docs/ARCHITECTURE.md` there. | shared |
 | `packages/canvas-renderer/` | Skia rendering, input, `CanvasView`. | shared |
+| `packages/pencil-input/` | Native Swift touch view: Apple Pencil pressure, tilt, coalesced and predicted samples. | Zhich |
 | `src/canvas-engine/` | The app's single import point for the engine. | shared |
 | `src/harness/` | AI harness: lasso context, tool calling, streaming | Zhich |
 | `src/sidebar/` | Sidebar chat | Yu |
