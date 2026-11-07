@@ -1,7 +1,7 @@
 {
   "name": "wander",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "index",
   "dependencies": {
     "@expo/metro-runtime": "~58.0.17",
     "@shopify/react-native-skia": "2.14.0",
@@ -18,6 +18,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~58.0.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -25,7 +27,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "npm test -w @wander/canvas-core"
+    "test": "npm test -w @wander/canvas-core",
+    "postinstall": "setup-skia-web public",
+    "lint": "expo lint"
   },
   "private": true,
   "workspaces": [

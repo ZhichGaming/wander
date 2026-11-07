@@ -1,12 +1,10 @@
 /**
  * Wander — Zhich, Yu, Justin
- * Canvas engine boundary. The engine (rendering, camera, strokes, tools,
- * undo, persistence) is treated as an internal library and will live
- * behind this module. Nothing outside src/canvas-engine imports its
- * internals directly.
- *
- * Placeholder: the real engine is not wired in yet.
+ * Canvas engine boundary for the app. The engine lives in the workspace
+ * packages @wander/canvas-core (model, tools, undo, serialization) and
+ * @wander/canvas-renderer (Skia drawing, input, CanvasView). App code
+ * imports the engine from here so there is one place to change if the
+ * packaging moves.
  */
 
-/** Public surface of the canvas engine. Filled in when the engine lands. */
-export type CanvasEngine = Record<string, never>;
+export * from '@wander/canvas-renderer';

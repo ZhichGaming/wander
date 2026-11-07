@@ -9,7 +9,7 @@
  */
 
 import { useEffect, type RefObject } from 'react';
-import { Platform, type View } from 'react-native';
+import { Platform } from 'react-native';
 import type { CanvasEngine } from '@wander/canvas-core';
 import { pointerSessionFor } from './pointerSessionFor';
 
@@ -17,7 +17,7 @@ import { pointerSessionFor } from './pointerSessionFor';
 const LINE_HEIGHT_PX = 16;
 
 /** Attaches wheel zoom and pan to the view behind `ref` (web only). */
-export function useCanvasWheel(engine: CanvasEngine, ref: RefObject<View | null>): void {
+export function useCanvasWheel(engine: CanvasEngine, ref: RefObject<unknown>): void {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const el = ref.current as unknown as HTMLElement | null;

@@ -1,0 +1,84 @@
+# Wander canvas engine: architecture
+
+Team: Zhich, Yu, Justin. Feeds the course design guide.
+
+## Two packages, one direction of dependency
+
+```
+app (src/)  ──>  @wander/canvas-renderer  ──>  @wander/canvas-core
+                 Skia, Reanimated, Gesture       pure TypeScript,
+                 Handler, CanvasView             no React Native
+```
+
+- **canvas-core** holds every rule about the document: what a stroke is, how
+  undo works, how files are saved, what each tool does with a drag. It
+  imports no React Native, so it is unit-tested with vitest in Node and
+  would survive a change of renderer.
+- **canvas-renderer** only draws the core's state and turns touches into
+  core calls. It has no document logic of its own.
+- The app imports the engine from one place (`src/canvas-engine/index.ts`,
+  which re-exports the renderer, which re-exports the core).
+
+## Core classes
+
+| Class | Role | Pattern |
+| --- | --- | --- |
+| `CanvasEngine` | Ties one document, history, camera, selection, overlay and the active tool together. The app's main handle. | Facade |
+| `CanvasDocument` | Ordered `Layer`s, the `BackgroundStyle`, an rbush `SpatialIndex` over every object. All mutations go through it so the index and change events stay in sync. | Observer (`changed` emitter) |
+| `Layer` | Ordered objects (order = z-order), visibility, lock, opacity. | |
+| `CanvasObject` | Abstract base: `id`, `bounds`, `hitTest`, `transformed`, `toJSON`. Immutable: edits make a new object with the same id. | Template / polymorphism |
+| `Stroke` | Raw points (x, y, pressure, time, tilt) plus a `StrokeStyle`; its filled outline comes from its brush, cached. | |
+| `PageObject` | An imported PDF page or image placed on the canvas, with its source file, page number and label. | |
+| `Brush` (`PenBrush`, `HighlighterBrush`) | Turns points into a filled outline polygon (perfect-freehand), says its draw pass and blend mode. The pen thins with speed; the highlighter is flat, multiply-blended and drawn behind ink. | Strategy + registry |
+| `Command` (`CreateObjects`, `DeleteObjects`, `ReplaceObjects`, `TransformObjects`, `SplitStroke`, layer commands, `SetBackground`) | One undoable edit each: `do` and `undo`. | Command |
+| `CommandGroup` | Several commands as one undo step (one AI answer, one eraser drag). | Composite |
+| `History` | Undo and redo stacks, `beginGroup` / `endGroup`. | |
+| `Tool` (`PenTool`, `EraserTool`, `LassoTool`) | What a drag does. Tools read `PointerInput` in world space and act only through commands, the selection and the overlay. | Strategy |
+| `Overlay` | Transient drawing state for the renderer: live stroke, lasso path, eraser cursor. Never saved. | Observer |
+| `Selection` | Selected object ids (lasso result; read by the AI harness). | Observer |
+| `Camera` | Pan and zoom (2% to 6400%), world-to-screen transforms, zoom about a point. | |
+| `PointerSession` | Input policy: decides per contact whether it draws or navigates (pen vs finger, `InputMode`), sets the multi-select flag, applies pinch and wheel to the camera. Gesture Handler feeds it today; the native Pencil module will feed it later. | State machine |
+| `Serializer` | Document to and from JSON, one record per object, grouped by layer. New object kinds register a factory. | Registry / factory |
+| `buildExportPlan`, `exportAnnotatedPdf` | Per selected page, the strokes on it in page coordinates; then pdf-lib copies the original PDF page and draws the ink on top as vector paths. | |
+
+### Why it is split this way
+
+- **Immutable objects + commands.** Undo stores the before and after objects,
+  so no command needs custom reverse math, and cached outlines can never go
+  stale.
+- **Vector erasing.** The partial eraser splits strokes into new strokes
+  (`SplitStroke`) instead of painting pixels, so zoom stays sharp and files
+  stay small.
+- **Tools never touch the renderer.** They publish transient state on the
+  `Overlay`; the renderer subscribes. A new tool needs no renderer change.
+- **Input policy in the core.** `PointerSession` is plain logic, so pen vs
+  finger rules are unit-tested, and the native Pencil module can call it
+  directly without going through Gesture Handler.
+
+## Renderer
+
+- `CanvasView` mirrors the camera into a Reanimated shared value and applies
+  it as one `Group` transform around world-space content, so panning and
+  zooming do not re-render React.
+- `SceneCache` records committed objects into Skia `Picture`s: per layer and
+  per draw pass (pages, highlighter, pen), consecutive runs of up to 128
+  objects, one picture each. Playing the runs in order keeps exact z-order;
+  a new stroke re-records only the last run. The visible scene is recorded
+  over the viewport plus a margin and rebuilt only when the view leaves it.
+- `OverlayLayer` draws the live stroke, lasso, eraser cursor and selection
+  box from shared values, so drawing does not re-render the ink.
+- `BackgroundLayer` draws the infinite grid, dots or lines for the visible
+  area only, with hairlines snapped to screen pixels.
+- `useCanvasGesture` (Gesture Handler 3 manual gesture, JS thread) and
+  `useCanvasWheel` (web wheel and trackpad) feed `PointerSession`.
+- Web: CanvasKit must load before Skia is imported; `index.web.ts` awaits
+  `ensureSkiaWeb()` and then imports the app. `canvaskit.wasm` is copied to
+  `public/` by the `postinstall` script.
+
+## Known limits
+
+- Gesture Handler does not expose Apple Pencil pressure or tilt, so pressure
+  is 0.5 until the native Swift Pencil module feeds `PointerSession`.
+- `PageObject` supports move and uniform scale, not rotation; PDF `/Rotate`
+  pages are not yet handled in export.
+- Pen speed-thinning constants are first guesses; tune on a real iPad.

@@ -8,11 +8,12 @@
 
 import { Canvas, Group, Picture } from '@shopify/react-native-skia';
 import type { BackgroundStyle, CameraState, CanvasEngine, InputMode, Vec2 } from '@wander/canvas-core';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { useCanvasGesture } from './input/useCanvasGesture';
+import { useCanvasWheel } from './input/useCanvasWheel';
 import { BackgroundLayer } from './render/BackgroundLayer';
 import { OverlayLayer } from './render/OverlayLayer';
 import { SceneController, type ScenePictures } from './render/SceneController';
@@ -69,6 +70,8 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
   const [pictures, setPictures] = useState<ScenePictures>({ scene: null, dragPreview: null });
   const controller = useRef<SceneController | null>(null);
   const gesture = useCanvasGesture(engine, { mode: inputMode });
+  const viewRef = useRef<ComponentRef<typeof View>>(null);
+  useCanvasWheel(engine, viewRef);
 
   useEffect(() => {
     const c = new SceneController(engine, setPictures, (offset) => {
@@ -101,7 +104,7 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
   ]);
 
   const content = (
-    <View style={[styles.fill, style]} onLayout={onLayout}>
+    <View ref={viewRef} style={[styles.fill, style]} onLayout={onLayout}>
       <Canvas style={styles.fill}>
         <BackgroundLayer background={background} camera={camera} size={size} />
         <Group transform={cameraTransform}>
