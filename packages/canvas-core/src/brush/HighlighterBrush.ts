@@ -16,6 +16,12 @@ export class HighlighterBrush implements Brush {
   readonly kind = 'highlighter' as const;
   readonly pass = 0;
   readonly blendMode = 'multiply' as const;
+  readonly texture = 'none' as const;
+
+  /** Full opacity: speed and pressure change width, not darkness. */
+  opacity(): number {
+    return 1;
+  }
 
   /** Constant-width outline with flat ends; pressure is ignored. */
   outline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {

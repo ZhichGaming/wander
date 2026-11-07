@@ -7,10 +7,12 @@ import type { Brush } from './Brush';
 import type { BrushKind } from '../model/StrokeStyle';
 import { HighlighterBrush } from './HighlighterBrush';
 import { PenBrush } from './PenBrush';
+import { PencilBrush } from './PencilBrush';
 
 const brushes = new Map<BrushKind, Brush>([
   ['pen', new PenBrush()],
   ['highlighter', new HighlighterBrush()],
+  ['pencil', new PencilBrush()],
 ]);
 
 /** Returns the brush for `kind`. Throws for an unknown kind. */

@@ -17,7 +17,7 @@ export * from './model/Background';
 export * from './model/CanvasDocument';
 export { registerObjectKind, objectFromJSON, type ObjectFactory } from './model/objectRegistry';
 
-export type { Brush, BlendMode } from './brush/Brush';
+export type { Brush, BlendMode, BrushTexture } from './brush/Brush';
 export { getBrush, registerBrush } from './brush/registry';
 
 export { SpatialIndex } from './spatial/SpatialIndex';
@@ -29,7 +29,7 @@ export * from './commands/LayerCommands';
 
 export * from './serialize/Serializer';
 
-export type { Tool, ToolContext, PointerInput, PointerKind } from './tools/Tool';
+export type { Tool, ToolContext, PointerInput, PointerKind, PointerSampleUpdate } from './tools/Tool';
 export * from './tools/Overlay';
 export { Selection } from './tools/Selection';
 export { PenTool } from './tools/PenTool';
@@ -39,6 +39,7 @@ export type { InputMode } from './input/InputMode';
 
 export { PenBrush } from './brush/PenBrush';
 export { HighlighterBrush } from './brush/HighlighterBrush';
+export { PencilBrush, shadeAmount } from './brush/PencilBrush';
 export { outlineToSvgPath, dotOutline, isSinglePoint } from './brush/outlinePath';
 
 export { EraserTool, DEFAULT_ERASER_OPTIONS, type EraserMode, type EraserOptions } from './tools/EraserTool';
@@ -56,6 +57,8 @@ export {
   SECOND_FINGER_WINDOW_MS,
   SECOND_FINGER_SLOP_PX,
   WHEEL_ZOOM_SPEED,
+  ESTIMATE_TIMEOUT_MS,
+  type PointerSessionOptions,
   type PointerPhase,
   type RawPointerSample,
   type RawPointerEvent,

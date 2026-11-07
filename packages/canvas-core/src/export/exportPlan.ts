@@ -82,7 +82,7 @@ function annotationsFor(doc: CanvasDocument, page: PageObject): ExportAnnotation
       out.push({
         outline: s.outline.map((p) => ({ x: p.x - ox, y: p.y - oy })),
         color: s.style.color,
-        opacity: s.style.opacity * layer.props.opacity,
+        opacity: s.opacity * layer.props.opacity,
         blendMode: getBrush(s.style.brush).blendMode,
       });
     }

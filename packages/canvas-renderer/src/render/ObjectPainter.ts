@@ -18,6 +18,7 @@ import {
 } from '@shopify/react-native-skia';
 import { getBrush, Stroke, type CanvasObject } from '@wander/canvas-core';
 import type { ImageCache } from './ImageCache';
+import { graphiteShader } from './graphite';
 import { outlineToSkPath } from './strokePath';
 
 /** Draw pass of imported pages: beneath every stroke of their layer. */
@@ -88,15 +89,20 @@ export class ObjectPainter {
     else if (isPage(obj)) this.drawPage(canvas, obj as unknown as PageLike);
   }
 
-  /** Fills the stroke's cached outline with its color, opacity and blend mode. */
+  /**
+   * Fills the stroke's cached outline with its color (or graphite grain),
+   * opacity and blend mode.
+   */
   private drawStroke(canvas: SkCanvas, stroke: Stroke): void {
     const path = this.pathOf(stroke);
     if (path.isEmpty()) return;
     const brush = getBrush(stroke.style.brush);
     this.fill.setColor(Skia.Color(stroke.style.color));
-    this.fill.setAlphaf(stroke.style.opacity);
+    this.fill.setAlphaf(stroke.opacity);
     this.fill.setBlendMode(brush.blendMode === 'multiply' ? BlendMode.Multiply : BlendMode.SrcOver);
+    this.fill.setShader(brush.texture === 'graphite' ? graphiteShader(stroke.style.color) : null);
     canvas.drawPath(path, this.fill);
+    this.fill.setShader(null);
   }
 
   /** Cached SkPath of a stroke's outline. */

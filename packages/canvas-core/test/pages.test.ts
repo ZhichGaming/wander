@@ -22,6 +22,9 @@ const squarePen: Brush = {
   kind: 'pen',
   pass: 1,
   blendMode: 'normal',
+  texture: 'none',
+  /** Full opacity. */
+  opacity: () => 1,
   /** Square corners around every input point. */
   outline(points) {
     return points.flatMap((p) => [

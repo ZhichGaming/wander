@@ -13,6 +13,7 @@ import {
   CanvasView,
   DEFAULT_HIGHLIGHTER_STYLE,
   DEFAULT_PEN_STYLE,
+  DEFAULT_PENCIL_STYLE,
   EraserTool,
   LassoTool,
   PenTool,
@@ -41,6 +42,7 @@ export default function CanvasScreen() {
 
   const actions: DevAction[] = [
     { label: 'pen', run: () => select('pen', new PenTool(DEFAULT_PEN_STYLE)) },
+    { label: 'pencil', run: () => select('pencil', new PenTool(DEFAULT_PENCIL_STYLE)) },
     { label: 'highlighter', run: () => select('highlighter', new PenTool(DEFAULT_HIGHLIGHTER_STYLE)) },
     { label: 'eraser', run: () => select('eraser', new EraserTool({ mode: 'partial' })) },
     { label: 'object eraser', run: () => select('object eraser', new EraserTool({ mode: 'object' })) },

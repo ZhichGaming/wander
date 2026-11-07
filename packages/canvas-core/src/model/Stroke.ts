@@ -11,6 +11,7 @@ import {
   distanceToSegment,
   inflateRect,
   matrixScale,
+  unionRect,
   type Matrix,
   type Rect,
   type Vec2,
@@ -35,6 +36,7 @@ export class Stroke extends CanvasObject {
   readonly style: Readonly<StrokeStyle>;
   private cachedBounds?: Rect;
   private cachedOutline?: Vec2[];
+  private cachedOpacity?: number;
 
   /** Creates a stroke; pass no id to get a fresh one. */
   constructor(points: readonly StrokePoint[], style: StrokeStyle, id: string = newId('s')) {
@@ -43,10 +45,15 @@ export class Stroke extends CanvasObject {
     this.style = { ...style };
   }
 
-  /** Bounds of the input points, padded by the stroke width. */
+  /**
+   * Bounds of the drawn outline (which can be much wider than the width for
+   * pencil shading), unioned with the points padded by the width.
+   */
   get bounds(): Rect {
     if (!this.cachedBounds) {
-      this.cachedBounds = inflateRect(boundsOfPoints(this.points), this.style.width);
+      const padded = inflateRect(boundsOfPoints(this.points), this.style.width);
+      const outline = this.outline;
+      this.cachedBounds = outline.length > 0 ? unionRect(padded, boundsOfPoints(outline)) : padded;
     }
     return this.cachedBounds;
   }
@@ -57,6 +64,14 @@ export class Stroke extends CanvasObject {
       this.cachedOutline = getBrush(this.style.brush).outline(this.points, this.style, true);
     }
     return this.cachedOutline;
+  }
+
+  /** Opacity to draw with: the style's opacity times the brush's (pencil shading is lighter). */
+  get opacity(): number {
+    if (this.cachedOpacity === undefined) {
+      this.cachedOpacity = this.style.opacity * getBrush(this.style.brush).opacity(this.points, this.style);
+    }
+    return this.cachedOpacity;
   }
 
   /** True when a circle at `p` touches the stroke's centre line widened by half its width. */
