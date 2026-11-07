@@ -6,6 +6,7 @@
  */
 
 import type { CanvasObject, ObjectJSON } from './CanvasObject';
+import { PageObject, type PageJSON } from './PageObject';
 import { Stroke, type StrokeJSON } from './Stroke';
 
 /** Rebuilds an object from its JSON record. */
@@ -13,6 +14,7 @@ export type ObjectFactory = (json: ObjectJSON) => CanvasObject;
 
 const factories = new Map<string, ObjectFactory>([
   ['stroke', (json) => Stroke.fromJSON(json as StrokeJSON)],
+  ['page', (json) => PageObject.fromJSON(json as PageJSON)],
 ]);
 
 /** Registers the factory for `kind`, replacing any previous one. */
