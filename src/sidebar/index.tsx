@@ -7,6 +7,9 @@
  */
 
 import { StyleSheet } from 'react-native';
+import {Text, TextInput, View, Pressable} from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function Sidebar() {
     return (
@@ -19,18 +22,24 @@ export default function Sidebar() {
 
 function ChatOutput() {
     return (
-        <div style={styles.ChatStyle}>
-
-        </div>
+        <View style={styles.ChatStyle}>
+            
+        </View>
     )
 }
 
 function BarUi() {
     return (
-        <div style={styles.BarStyle}>
-            // add "plus" button and input type="text" placeholder="Ask anything..." 
-            // Gemini does input as the base, then "plus" button on the left and send on right
-        </div>
+        <TextInput style={styles.BarStyle} placeholder='Ask anything...'>
+            <Pressable onPress={() => console.log()}> // add better onPress 
+                <Feather name="plus" size={24} color="black" />
+            </Pressable>
+
+            <Pressable onPress={() => console.log()}> // add better onPress 
+                <Ionicons name="send" size={24} color="black" />
+            </Pressable>
+        </TextInput>
+        
     );
 }
 
