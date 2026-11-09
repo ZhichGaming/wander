@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
     "@expo/metro-runtime": "~58.0.17",
     "@shopify/react-native-skia": "2.14.0",
     "@wander/canvas-renderer": "*",
