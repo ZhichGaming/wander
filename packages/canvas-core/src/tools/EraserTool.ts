@@ -140,13 +140,17 @@ export class EraserTool implements Tool {
   /**
    * Cuts the covered part out of each candidate stroke. The capsule is
    * widened by half the stroke width so the remaining ink ends at the
-   * eraser edge rather than overlapping it.
+   * eraser edge rather than overlapping it. The cut is made on the stroke's
+   * baked centre line (see Stroke.toBaked) so the ink that remains does not
+   * move or change width.
    */
   private erasePartial(strokes: Stroke[], c: Capsule, ctx: ToolContext): void {
     for (const s of strokes) {
-      const result = eraseFromPolyline(s.points, { ...c, radius: c.radius + s.style.width / 2 });
+      const source = s.toBaked();
+      const result = eraseFromPolyline(source.points, { ...c, radius: c.radius + s.style.width / 2 });
       if (!result.changed) continue;
-      const pieces = result.runs.map((run) => s.withPoints(run));
+      const end = source.points[source.points.length - 1];
+      const pieces = result.runs.map((run) => source.withPoints(run, run[run.length - 1] === end));
       ctx.history.execute(new SplitStroke(s.id, pieces));
     }
   }

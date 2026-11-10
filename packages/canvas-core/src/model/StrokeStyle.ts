@@ -14,6 +14,8 @@ export interface StrokePoint {
   /** Pencil tilt in radians, if known. */
   tiltX?: number;
   tiltY?: number;
+  /** Baked strokes only (see Stroke): which outline sides have a vertex at this point. */
+  edges?: number;
 }
 
 /** Which brush draws the stroke. Each kind maps to a Brush in the registry. */

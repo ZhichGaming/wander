@@ -51,7 +51,11 @@ app (src/)  ──>  @wander/canvas-renderer  ──>  @wander/canvas-core
   stale.
 - **Vector erasing.** The partial eraser splits strokes into new strokes
   (`SplitStroke`) instead of painting pixels, so zoom stays sharp and files
-  stay small.
+  stay small. A stroke is "baked" the first time it is cut: its points
+  become the finished centre line its brush drew (`Stroke.toBaked`), and
+  the pieces are outlined from that directly. Re-running the brush on a
+  piece's raw points would restart its smoothing and speed filter at the
+  cut and make the remaining ink shift.
 - **Tools never touch the renderer.** They publish transient state on the
   `Overlay`; the renderer subscribes. A new tool needs no renderer change.
 - **Input policy in the core.** `PointerSession` is plain logic, so pen vs

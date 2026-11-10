@@ -5,7 +5,18 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { CanvasEngine, CreateObjects, Layer, Stroke, UpdateLayer, DEFAULT_PEN_STYLE, type PointerInput } from '../src';
+import {
+  CanvasEngine,
+  CreateObjects,
+  Layer,
+  Stroke,
+  UpdateLayer,
+  DEFAULT_HIGHLIGHTER_STYLE,
+  DEFAULT_PEN_STYLE,
+  DEFAULT_PENCIL_STYLE,
+  type PointerInput,
+  type StrokeStyle,
+} from '../src';
 import { EraserTool } from '../src/tools/EraserTool';
 import { SplitStroke } from '../src/commands/EraseCommands';
 import { distanceToSegment } from '../src/math/geometry';
@@ -153,5 +164,67 @@ describe('SplitStroke', () => {
     expect(ids(engine)).toEqual([s.id]);
     engine.redo();
     expect(ids(engine)).toEqual(pieces.map((p) => p.id));
+  });
+});
+
+describe('partial erase keeps the remaining ink in place', () => {
+  /** A wavy stroke drawn at changing speed, so smoothing and speed thinning both matter. */
+  function wave(style: StrokeStyle): Stroke {
+    const pts = [];
+    for (let i = 0; i <= 1000; i++) {
+      const x = i * 0.3;
+      pts.push({ x, y: 25 * Math.sin(x / 18), pressure: 0.5, time: i * (0.4 + 0.2 * Math.sin(i / 45)) });
+    }
+    return new Stroke(pts, style);
+  }
+
+  /** Distance from `p` to the closed polygon's edge. */
+  function toEdge(p: { x: number; y: number }, polygon: { x: number; y: number }[]): number {
+    let best = Infinity;
+    for (let i = 0; i < polygon.length; i++) {
+      best = Math.min(best, distanceToSegment(p, polygon[i], polygon[(i + 1) % polygon.length]));
+    }
+    return best;
+  }
+
+  for (const style of [DEFAULT_PEN_STYLE, DEFAULT_PENCIL_STYLE, DEFAULT_HIGHLIGHTER_STYLE]) {
+    it(`${style.brush}: pieces follow the original outline away from the cuts`, () => {
+      const engine = new CanvasEngine();
+      const [target] = addStrokes(engine, [wave(style)]);
+      const original = target.outline;
+      engine.setTool(new EraserTool({ mode: 'partial', radius: 4 }));
+      // Two separate dabs, so the middle piece is cut out of an already cut piece.
+      const dabs = [target.points[300], target.points[650]];
+      for (const d of dabs) drag(engine, d.x, d.y, d.x, d.y);
+
+      const pieces = engine.doc.activeLayer.items as Stroke[];
+      expect(pieces).toHaveLength(3);
+      const nearCut = 4 + style.width * 1.5;
+      let checked = 0;
+      let worst = 0;
+      for (const piece of pieces) {
+        expect(piece.opacity).toBeCloseTo(target.opacity, 10);
+        for (const v of piece.outline) {
+          if (dabs.some((d) => Math.hypot(v.x - d.x, v.y - d.y) < nearCut)) continue;
+          worst = Math.max(worst, toEdge(v, original));
+          checked++;
+        }
+      }
+      expect(worst).toBeLessThan(1e-6);
+      expect(checked).toBeGreaterThan(20);
+    });
+  }
+
+  it('baking does not change how a stroke looks, and survives saving', () => {
+    const stroke = wave(DEFAULT_PEN_STYLE);
+    const baked = stroke.toBaked();
+    expect(baked.outline).toHaveLength(stroke.outline.length);
+    baked.outline.forEach((p, i) => {
+      expect(p.x).toBeCloseTo(stroke.outline[i].x, 9);
+      expect(p.y).toBeCloseTo(stroke.outline[i].y, 9);
+    });
+    const loaded = Stroke.fromJSON(JSON.parse(JSON.stringify(baked.toJSON())));
+    expect(loaded.outline).toEqual(baked.outline);
+    expect(loaded.transformed({ a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 }).baked?.size).toBe(baked.baked!.size * 2);
   });
 });
