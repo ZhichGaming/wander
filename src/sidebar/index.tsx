@@ -13,16 +13,16 @@ import { Ionicons } from '@expo/vector-icons';
 
 export default function Sidebar() {
     return (
-        <>
+        <View style={styles.SidebarStyle}>
             <ChatOutput />
             <BarUi />
-        </>
+        </View>
     );
 };
 
 function ChatOutput() {
     return (
-        <View style={styles.ChatStyle}>
+        <View style={styles.OutputStyle}>
             
         </View>
     )
@@ -30,29 +30,42 @@ function ChatOutput() {
 
 function BarUi() {
     return (
-        <TextInput style={styles.BarStyle} placeholder='Ask anything...'>
-            <Pressable onPress={() => console.log()}> // add better onPress 
+        <View style={styles.InbarStyle}>
+            <Pressable onPress={() => console.log()}>
                 <Feather name="plus" size={24} color="black" />
             </Pressable>
 
-            <Pressable onPress={() => console.log()}> // add better onPress 
+            <TextInput style={styles.TextboxStyle} placeholder='Ask anything...'>
+                
+            </TextInput>
+
+            <Pressable onPress={() => console.log()}>
                 <Ionicons name="send" size={24} color="black" />
             </Pressable>
-        </TextInput>
-        
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    ChatStyle: {
+    OutputStyle: {
         display: 'flex', 
-        flex: 9,
     },
 
-    BarStyle: {
-        display: 'flex', 
-        flex: 1, 
+    InbarStyle: {
         flexDirection: 'row', 
-        justifyContent: 'space-around',
-    }
+        borderWidth: 1.5,
+        borderRadius: 20,
+        padding: 3.5,
+        margin: 3.5,
+    },
+
+    TextboxStyle: {
+        flex: 1
+    },
+
+    SidebarStyle: {
+        justifyContent: 'flex-end',
+        flex: 1
+    },
+    
 })
