@@ -1,10 +1,10 @@
-import { Message } from "./agent";
+import { Message, Tool, ToolCall } from "../agent";
 
 export interface Provider {
     models: Model[];
     model: Model;
 
-    run(messages: Message[]): Promise<string>;
+    run(messages: Message[], tools?: Tool[]): Promise<ProviderResponse>;
 
 }
 
@@ -28,5 +28,17 @@ export class Model {
         this.name = name;
         this.id = id;
         this.description = description;
+    }
+}
+
+export class ProviderResponse {
+    text: string | undefined;
+    tools: ToolCall[];
+    error: string | undefined;
+
+    constructor(text: string | undefined, tools: ToolCall[] | undefined, error: string | undefined) {
+        this.text = text ?? undefined;
+        this.tools = tools ?? [];
+        this.error = error ?? undefined;
     }
 }

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { Model, Provider } from "../provider";
-import { Message } from "../agent";
+import { Model, Provider, ProviderResponse } from "./provider";
+import { Message, Tool, ToolCall } from "../agent";
 
 export default class AnthropicProvider implements Provider {
     private anthropic: Anthropic;
@@ -27,19 +27,26 @@ export default class AnthropicProvider implements Provider {
         };
     }
 
-    async run(messages: Message[]) {
-        const stream = this.anthropic.messages.stream({
+    private toAnthropicTools(tools: Tool[]) {
+        return tools.map(tool => tool.argsToObject());
+    }
+
+    async run(messages: Message[], tools?: Tool[]) {
+        const response = await this.anthropic.messages.create({
             model: this.model.id,
             max_tokens: 20000,
-            messages: messages.map(this.toAnthropicMessage)
+            messages: messages.map(this.toAnthropicMessage),
+            tools: tools ? this.toAnthropicTools(tools) : []
         });
 
-        let result = "";
-        for await (const chunk of stream) {
-            if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
-                result += chunk.delta.text;
-            }
-        }
-        return result;
+        const text = response.content.find(content => content.type === "text")?.text ?? "";
+        const toolCalls = response.content.filter(content => content.type === "tool_use")
+            .map(content => new ToolCall(content.name, content.input));
+
+        return {
+            text: text,
+            tools: toolCalls,
+            error: undefined
+        } as ProviderResponse;
     }
 }

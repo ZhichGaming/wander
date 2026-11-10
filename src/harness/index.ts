@@ -6,7 +6,7 @@
  * Placeholder.
  */
 
-import Agent from "./agent";
+import Agent, { Tool } from "./agent";
 import AnthropicProvider from "./providers/anthropic";
 
 export default class Harness {
@@ -14,6 +14,7 @@ export default class Harness {
         anthropic: new AnthropicProvider("claude-haiku-5-5"),
     }
 
+    tools: Tool[] = [];
     agent!: Agent;
 
     constructor() {
@@ -24,7 +25,7 @@ export default class Harness {
         // TODO: Implement load
         // Load providers file, load agent file
 
-        this.agent = new Agent([], this.providers.anthropic);
+        this.agent = new Agent([], this.providers.anthropic, this.tools);
     }
 
     save() {
