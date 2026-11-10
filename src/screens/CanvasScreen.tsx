@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { CanvasEngine, CanvasView } from '../canvas-engine';
 import Overlay from '../ui/Overlay';
+import Sidebar from '../sidebar';
 
 /** Full-screen layout: canvas on the left, retractable sidebar on the right. */
 export default function CanvasScreen() {
@@ -19,7 +20,7 @@ export default function CanvasScreen() {
         <Overlay engine={engine} />
       </View>
       <View style={styles.sidebar}>
-        <Text style={styles.label}>Sidebar (placeholder)</Text>
+        <Sidebar />
       </View>
     </View>
   );
@@ -32,8 +33,6 @@ const styles = StyleSheet.create({
     width: 320,
     borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: '#ccc',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   label: { color: '#888' },
 });
