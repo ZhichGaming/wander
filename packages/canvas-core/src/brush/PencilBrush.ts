@@ -15,7 +15,7 @@
 
 import type { Vec2 } from '../math/geometry';
 import type { StrokePoint, StrokeStyle } from '../model/StrokeStyle';
-import type { Brush } from './Brush';
+import type { Brush, FreehandCall } from './Brush';
 import { freehandOutline } from './freehand';
 import { dotOutline, isSinglePoint } from './outlinePath';
 import { resample, type PreparedPoint } from './samplePrep';
@@ -78,27 +78,37 @@ export function pencilOpacity(points: readonly StrokePoint[]): number {
   return 1 - (1 - SHADE_OPACITY) * median;
 }
 
-/** Outline whose width follows tilt (side shading) and pressure. Worklet. */
-export function pencilOutline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
+/** Samples and options the pencil hands to freehandOutline. Worklet. */
+function pencilFreehand(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): FreehandCall {
   'worklet';
-  if (points.length === 0) return [];
   const stylus = hasPressure(points);
-  if (isSinglePoint(points)) return dotOutline(points[0], pencilRadius(points[0], style, stylus));
   const maxRadius = (style.width / 2) * SHADE_WIDTH;
   const prepared: PreparedPoint[] = points.map((p) => ({
     x: p.x,
     y: p.y,
     pressure: Math.max(0.01, pencilRadius(p, style, stylus) / maxRadius),
   }));
-  return freehandOutline(resample(prepared, style.width * SPACING), {
-    size: maxRadius,
-    thinning: 1,
-    smoothing: 0.6,
-    streamline: 0.4,
-    capStart: true,
-    capEnd: true,
-    last: complete,
-  });
+  return {
+    input: resample(prepared, style.width * SPACING),
+    options: {
+      size: maxRadius,
+      thinning: 1,
+      smoothing: 0.6,
+      streamline: 0.4,
+      capStart: true,
+      capEnd: true,
+      last: complete,
+    },
+  };
+}
+
+/** Outline whose width follows tilt (side shading) and pressure. Worklet. */
+export function pencilOutline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
+  'worklet';
+  if (points.length === 0) return [];
+  if (isSinglePoint(points)) return dotOutline(points[0], pencilRadius(points[0], style, hasPressure(points)));
+  const call = pencilFreehand(points, style, complete);
+  return freehandOutline(call.input, call.options);
 }
 
 /** Tilt-aware graphite pencil. */
@@ -116,5 +126,10 @@ export class PencilBrush implements Brush {
   /** Outline whose width follows tilt and pressure (see pencilOutline). */
   outline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
     return pencilOutline(points, style, complete);
+  }
+
+  /** The freehand call behind a finished pencil stroke; null for a tap. */
+  freehand(points: readonly StrokePoint[], style: StrokeStyle): FreehandCall | null {
+    return points.length === 0 || isSinglePoint(points) ? null : pencilFreehand(points, style, true);
   }
 }

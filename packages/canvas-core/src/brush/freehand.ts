@@ -60,6 +60,9 @@ const MIN_STREAMLINE_T = 0.15;
 const STREAMLINE_T_RANGE = 0.85;
 const MIN_RADIUS = 0.01;
 const DEFAULT_FIRST_PRESSURE = 0.25;
+/** Bits of a centre sample's `edges`: the outline has a vertex on that side. */
+const EDGE_LEFT = 1;
+const EDGE_RIGHT = 2;
 
 /** A + B. */
 function add(a: P, b: P): P {
@@ -191,8 +194,20 @@ function centreLine(input: readonly FreehandInput[], o: FreehandOptions): Centre
   return out;
 }
 
-/** Outline polygon around the centre line. */
-function outlineOf(points: CentrePoint[], o: FreehandOptions): P[] {
+/**
+ * Outline polygon around the centre line. Outline vertices closer than the
+ * smoothing distance to the previous one are left out, which depends on
+ * where the line starts. `edgesOut`, when given, records per point which
+ * sides got a vertex (EDGE_LEFT | EDGE_RIGHT); `edgesIn` replays such a
+ * record, so a part of a line gets the same vertices the whole line had.
+ */
+function outlineOf(
+  points: CentrePoint[],
+  o: FreehandOptions,
+  trimEnd = true,
+  edgesIn?: readonly (number | undefined)[],
+  edgesOut?: (number | undefined)[],
+): P[] {
   'worklet';
   if (points.length === 0 || o.size <= 0) return [];
   const totalLength = points[points.length - 1].runningLength;
@@ -211,7 +226,7 @@ function outlineOf(points: CentrePoint[], o: FreehandOptions): P[] {
   for (let i = 0; i < points.length; i++) {
     const { point, vector, runningLength, pressure } = points[i];
     const isLast = i === points.length - 1;
-    if (!isLast && totalLength - runningLength < END_NOISE_THRESHOLD) continue;
+    if (trimEnd && !isLast && totalLength - runningLength < END_NOISE_THRESHOLD) continue;
     radius = o.thinning ? radiusFor(o.size, o.thinning, pressure) : o.size / 2;
     if (firstRadius < 0) firstRadius = radius;
     radius = Math.max(MIN_RADIUS, radius);
@@ -243,16 +258,22 @@ function outlineOf(points: CentrePoint[], o: FreehandOptions): P[] {
       continue;
     }
     const offset = mul(per(lrp(nextVector, vector, nextDpr)), radius);
+    const edges = edgesIn ? edgesIn[i] : undefined;
     tempLeft = sub(point, offset);
-    if (i <= 1 || dist2(prevLeft, tempLeft) > minDistance) {
+    const keepLeft =
+      edges !== undefined ? (edges & EDGE_LEFT) !== 0 : i <= 1 || dist2(prevLeft, tempLeft) > minDistance;
+    if (keepLeft) {
       leftPts.push(tempLeft);
       prevLeft = tempLeft;
     }
     tempRight = add(point, offset);
-    if (i <= 1 || dist2(prevRight, tempRight) > minDistance) {
+    const keepRight =
+      edges !== undefined ? (edges & EDGE_RIGHT) !== 0 : i <= 1 || dist2(prevRight, tempRight) > minDistance;
+    if (keepRight) {
       rightPts.push(tempRight);
       prevRight = tempRight;
     }
+    if (edgesOut) edgesOut[i] = (keepLeft ? EDGE_LEFT : 0) | (keepRight ? EDGE_RIGHT : 0);
     prevVector = vector;
   }
 
@@ -304,4 +325,79 @@ export function freehandOutline(
 ): { x: number; y: number }[] {
   'worklet';
   return outlineOf(centreLine(input, o), o).map((p) => ({ x: p[0], y: p[1] }));
+}
+
+/** How to draw a frozen centre line (see freehandCentre); all plain data. */
+export interface BakedOptions {
+  /** Base diameter; a sample's radius is `size` times its pressure. */
+  size: number;
+  /** How much to soften the outline's edges. */
+  smoothing: number;
+  /** Round (true) or flat (false) caps at the start and end. */
+  capStart: boolean;
+  capEnd: boolean;
+  /** True while the line still ends where the original stroke ended. */
+  trimEnd: boolean;
+}
+
+/** A frozen centre sample: `pressure` is the radius as a fraction of the size. */
+export interface CentreSample extends FreehandInput {
+  /** Which outline sides have a vertex here (see outlineOf); absent on new cut ends. */
+  edges?: number;
+}
+
+/**
+ * The finished centre line of a stroke: streamlined positions, with each
+ * sample's `pressure` replaced by its radius as a fraction of `o.size`.
+ * freehandBakedOutline draws it without any further smoothing, so a part
+ * cut out of it is drawn exactly where the whole line was.
+ */
+export function freehandCentre(input: readonly FreehandInput[], o: FreehandOptions): CentreSample[] {
+  const line = centreLine(input, o);
+  const edges: (number | undefined)[] = [];
+  outlineOf(line, o, true, undefined, edges);
+  return line.map((c, i) => {
+    const sample: CentreSample = {
+      x: c.point[0],
+      y: c.point[1],
+      pressure: (o.thinning ? radiusFor(o.size, o.thinning, c.pressure) : o.size / 2) / o.size,
+    };
+    if (edges[i] !== undefined) sample.edges = edges[i];
+    return sample;
+  });
+}
+
+/** Outline polygon around a centre line from freehandCentre, or around a part of one. */
+export function freehandBakedOutline(
+  centre: readonly CentreSample[],
+  b: BakedOptions,
+): { x: number; y: number }[] {
+  const edges: (number | undefined)[] = [];
+  const points: CentrePoint[] = [];
+  let runningLength = 0;
+  for (const c of centre) {
+    const point: P = [c.x, c.y];
+    const prev = points[points.length - 1];
+    if (!prev) {
+      points.push({ point, pressure: c.pressure, vector: [1, 1], distance: 0, runningLength: 0 });
+      edges.push(c.edges);
+      continue;
+    }
+    if (prev.point[0] === point[0] && prev.point[1] === point[1]) continue;
+    const distance = dist(point, prev.point);
+    runningLength += distance;
+    edges.push(c.edges);
+    points.push({ point, pressure: c.pressure, vector: uni(sub(prev.point, point)), distance, runningLength });
+  }
+  if (points.length > 0) points[0].vector = points.length > 1 ? points[1].vector : [0, 0];
+  const o: FreehandOptions = {
+    size: b.size,
+    thinning: 1,
+    smoothing: b.smoothing,
+    streamline: 0,
+    capStart: b.capStart,
+    capEnd: b.capEnd,
+    last: true,
+  };
+  return outlineOf(points, o, b.trimEnd, edges).map((p) => ({ x: p[0], y: p[1] }));
 }

@@ -11,7 +11,7 @@
 
 import type { Vec2 } from '../math/geometry';
 import type { StrokePoint, StrokeStyle } from '../model/StrokeStyle';
-import type { Brush } from './Brush';
+import type { Brush, FreehandCall } from './Brush';
 import { freehandOutline } from './freehand';
 import { dotOutline, isSinglePoint } from './outlinePath';
 import { resample, smoothedSpeeds, type PreparedPoint } from './samplePrep';
@@ -49,23 +49,32 @@ function penPressures(points: readonly StrokePoint[], width: number, stylus: boo
   });
 }
 
+/** Samples and options the pen hands to freehandOutline. Worklet. */
+function penFreehand(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): FreehandCall {
+  'worklet';
+  const stylus = hasPressure(points);
+  return {
+    input: resample(penPressures(points, style.width, stylus), style.width * SPACING),
+    options: {
+      size: style.width,
+      // A stylus gets a wider pressure range than a finger's speed-only response.
+      thinning: stylus ? STYLUS_THINNING : FINGER_THINNING,
+      smoothing: 0.5,
+      streamline: 0.45,
+      capStart: true,
+      capEnd: true,
+      last: complete,
+    },
+  };
+}
+
 /** Round-ended outline whose width follows pressure and speed. Worklet. */
 export function penOutline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
   'worklet';
   if (points.length === 0) return [];
   if (isSinglePoint(points)) return dotOutline(points[0], style.width / 2);
-  const stylus = hasPressure(points);
-  const input = resample(penPressures(points, style.width, stylus), style.width * SPACING);
-  return freehandOutline(input, {
-    size: style.width,
-    // A stylus gets a wider pressure range than a finger's speed-only response.
-    thinning: stylus ? STYLUS_THINNING : FINGER_THINNING,
-    smoothing: 0.5,
-    streamline: 0.45,
-    capStart: true,
-    capEnd: true,
-    last: complete,
-  });
+  const call = penFreehand(points, style, complete);
+  return freehandOutline(call.input, call.options);
 }
 
 /** Pressure and velocity sensitive pen. */
@@ -83,5 +92,10 @@ export class PenBrush implements Brush {
   /** Round-ended outline whose width follows pressure and speed (see penOutline). */
   outline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
     return penOutline(points, style, complete);
+  }
+
+  /** The freehand call behind a finished pen stroke; null for a tap. */
+  freehand(points: readonly StrokePoint[], style: StrokeStyle): FreehandCall | null {
+    return points.length === 0 || isSinglePoint(points) ? null : penFreehand(points, style, true);
   }
 }

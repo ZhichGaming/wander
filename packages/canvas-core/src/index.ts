@@ -11,7 +11,7 @@ export { newId } from './ids';
 
 export { CanvasObject, type ObjectJSON } from './model/CanvasObject';
 export * from './model/StrokeStyle';
-export { Stroke, type StrokeJSON } from './model/Stroke';
+export { Stroke, type BakedInk, type StrokeJSON } from './model/Stroke';
 export { Layer, type LayerProps } from './model/Layer';
 export * from './model/Background';
 export * from './model/CanvasDocument';
