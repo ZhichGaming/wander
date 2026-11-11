@@ -96,7 +96,12 @@ export class CanvasEngine {
   pointerUp(e: PointerInput): void {
     if (!this.gestureActive) return;
     this.gestureActive = false;
-    this._tool.onUp(e, this.ctx);
+    try {
+      this._tool.onUp(e, this.ctx);
+    } catch (err) {
+      this._tool.onCancel(this.ctx);
+      throw err;
+    }
   }
 
   /** Cancels the gesture in progress, if any. */

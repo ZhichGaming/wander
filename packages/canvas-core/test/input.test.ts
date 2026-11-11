@@ -212,3 +212,31 @@ describe('PointerSession navigation and samples', () => {
     expect(engine.camera.get().y).toBeCloseTo(cam.y + 20 / cam.scale);
   });
 });
+
+describe('PointerSession survives a failed commit', () => {
+  it('accepts a second stroke when commit throws', () => {
+    const engine = new CanvasEngine();
+    const session = new PointerSession(engine, 'finger');
+    const execute = engine.history.execute.bind(engine.history);
+    let failNext = true;
+    engine.history.execute = (cmd) => {
+      if (failNext) {
+        failNext = false;
+        throw new Error('commit failed');
+      }
+      execute(cmd);
+    };
+
+    session.handle(ev('down', 1, 'touch', 0, 0, 0));
+    drag(session, 1, 'touch', 0, 0, 0, 5);
+    expect(() => session.handle(ev('up', 1, 'touch', 50, 0, 100))).toThrow('commit failed');
+    expect(strokeCount(engine)).toBe(0);
+    expect(engine.overlay.state.liveStroke).toBeNull();
+
+    session.handle(ev('down', 2, 'touch', 0, 100, 200));
+    drag(session, 2, 'touch', 0, 100, 200, 5);
+    session.handle(ev('up', 2, 'touch', 50, 100, 300));
+    expect(strokeCount(engine)).toBe(1);
+    expect(engine.doc.activeLayer.items[0]).toBeInstanceOf(Stroke);
+  });
+});

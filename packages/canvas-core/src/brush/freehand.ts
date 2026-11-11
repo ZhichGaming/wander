@@ -197,16 +197,20 @@ function centreLine(input: readonly FreehandInput[], o: FreehandOptions): Centre
 /**
  * Outline polygon around the centre line. Outline vertices closer than the
  * smoothing distance to the previous one are left out, which depends on
- * where the line starts. `edgesOut`, when given, records per point which
+ * where the line starts. `edgesOut`, when not null, records per point which
  * sides got a vertex (EDGE_LEFT | EDGE_RIGHT); `edgesIn` replays such a
  * record, so a part of a line gets the same vertices the whole line had.
+ *
+ * Every argument is required. Reanimated worklets do not reliably transform
+ * default or optional parameters; a broken transform here throws on the UI
+ * thread while drawing the live stroke (and on JS while committing).
  */
 function outlineOf(
   points: CentrePoint[],
   o: FreehandOptions,
-  trimEnd = true,
-  edgesIn?: readonly (number | undefined)[],
-  edgesOut?: (number | undefined)[],
+  trimEnd: boolean,
+  edgesIn: readonly (number | undefined)[] | null,
+  edgesOut: (number | undefined)[] | null,
 ): P[] {
   'worklet';
   if (points.length === 0 || o.size <= 0) return [];
@@ -258,7 +262,7 @@ function outlineOf(
       continue;
     }
     const offset = mul(per(lrp(nextVector, vector, nextDpr)), radius);
-    const edges = edgesIn ? edgesIn[i] : undefined;
+    const edges = edgesIn !== null ? edgesIn[i] : undefined;
     tempLeft = sub(point, offset);
     const keepLeft =
       edges !== undefined ? (edges & EDGE_LEFT) !== 0 : i <= 1 || dist2(prevLeft, tempLeft) > minDistance;
@@ -273,7 +277,7 @@ function outlineOf(
       rightPts.push(tempRight);
       prevRight = tempRight;
     }
-    if (edgesOut) edgesOut[i] = (keepLeft ? EDGE_LEFT : 0) | (keepRight ? EDGE_RIGHT : 0);
+    if (edgesOut !== null) edgesOut[i] = (keepLeft ? EDGE_LEFT : 0) | (keepRight ? EDGE_RIGHT : 0);
     prevVector = vector;
   }
 
@@ -324,7 +328,7 @@ export function freehandOutline(
   o: FreehandOptions,
 ): { x: number; y: number }[] {
   'worklet';
-  return outlineOf(centreLine(input, o), o).map((p) => ({ x: p[0], y: p[1] }));
+  return outlineOf(centreLine(input, o), o, true, null, null).map((p) => ({ x: p[0], y: p[1] }));
 }
 
 /** How to draw a frozen centre line (see freehandCentre); all plain data. */
@@ -355,7 +359,7 @@ export interface CentreSample extends FreehandInput {
 export function freehandCentre(input: readonly FreehandInput[], o: FreehandOptions): CentreSample[] {
   const line = centreLine(input, o);
   const edges: (number | undefined)[] = [];
-  outlineOf(line, o, true, undefined, edges);
+  outlineOf(line, o, true, null, edges);
   return line.map((c, i) => {
     const sample: CentreSample = {
       x: c.point[0],
@@ -399,5 +403,5 @@ export function freehandBakedOutline(
     capEnd: b.capEnd,
     last: true,
   };
-  return outlineOf(points, o, b.trimEnd, edges).map((p) => ({ x: p[0], y: p[1] }));
+  return outlineOf(points, o, b.trimEnd, edges, null).map((p) => ({ x: p[0], y: p[1] }));
 }
