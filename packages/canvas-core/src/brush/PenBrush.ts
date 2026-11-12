@@ -49,9 +49,13 @@ function penPressures(points: readonly StrokePoint[], width: number, stylus: boo
   });
 }
 
-/** Samples and options the pen hands to freehandOutline. Worklet. */
+/**
+ * Samples and options the pen hands to freehandOutline. JavaScript only
+ * (Stroke.toBaked). The live outline inlines the same call: a worklet that
+ * returns this object and is then read from penOutline hung Pencil input
+ * on iPad / Hermes after the first stroke (bb7f609).
+ */
 function penFreehand(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): FreehandCall {
-  'worklet';
   const stylus = hasPressure(points);
   return {
     input: resample(penPressures(points, style.width, stylus), style.width * SPACING),
@@ -73,8 +77,18 @@ export function penOutline(points: readonly StrokePoint[], style: StrokeStyle, c
   'worklet';
   if (points.length === 0) return [];
   if (isSinglePoint(points)) return dotOutline(points[0], style.width / 2);
-  const call = penFreehand(points, style, complete);
-  return freehandOutline(call.input, call.options);
+  const stylus = hasPressure(points);
+  const input = resample(penPressures(points, style.width, stylus), style.width * SPACING);
+  return freehandOutline(input, {
+    size: style.width,
+    // A stylus gets a wider pressure range than a finger's speed-only response.
+    thinning: stylus ? STYLUS_THINNING : FINGER_THINNING,
+    smoothing: 0.5,
+    streamline: 0.45,
+    capStart: true,
+    capEnd: true,
+    last: complete,
+  });
 }
 
 /** Pressure and velocity sensitive pen. */

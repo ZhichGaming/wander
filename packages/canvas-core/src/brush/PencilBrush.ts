@@ -78,9 +78,11 @@ export function pencilOpacity(points: readonly StrokePoint[]): number {
   return 1 - (1 - SHADE_OPACITY) * median;
 }
 
-/** Samples and options the pencil hands to freehandOutline. Worklet. */
+/**
+ * Samples and options the pencil hands to freehandOutline. JavaScript only
+ * (Stroke.toBaked); the live outline inlines the same call. See penFreehand.
+ */
 function pencilFreehand(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): FreehandCall {
-  'worklet';
   const stylus = hasPressure(points);
   const maxRadius = (style.width / 2) * SHADE_WIDTH;
   const prepared: PreparedPoint[] = points.map((p) => ({
@@ -106,9 +108,23 @@ function pencilFreehand(points: readonly StrokePoint[], style: StrokeStyle, comp
 export function pencilOutline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
   'worklet';
   if (points.length === 0) return [];
-  if (isSinglePoint(points)) return dotOutline(points[0], pencilRadius(points[0], style, hasPressure(points)));
-  const call = pencilFreehand(points, style, complete);
-  return freehandOutline(call.input, call.options);
+  const stylus = hasPressure(points);
+  if (isSinglePoint(points)) return dotOutline(points[0], pencilRadius(points[0], style, stylus));
+  const maxRadius = (style.width / 2) * SHADE_WIDTH;
+  const prepared: PreparedPoint[] = points.map((p) => ({
+    x: p.x,
+    y: p.y,
+    pressure: Math.max(0.01, pencilRadius(p, style, stylus) / maxRadius),
+  }));
+  return freehandOutline(resample(prepared, style.width * SPACING), {
+    size: maxRadius,
+    thinning: 1,
+    smoothing: 0.6,
+    streamline: 0.4,
+    capStart: true,
+    capEnd: true,
+    last: complete,
+  });
 }
 
 /** Tilt-aware graphite pencil. */
