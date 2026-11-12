@@ -6,6 +6,13 @@
 
 import type { Vec2 } from '../math/geometry';
 import type { BrushKind, StrokePoint, StrokeStyle } from '../model/StrokeStyle';
+import type { FreehandInput, FreehandOptions } from './freehand';
+
+/** The exact samples and options a brush hands to freehandOutline. */
+export interface FreehandCall {
+  input: FreehandInput[];
+  options: FreehandOptions;
+}
 
 /** How a brush's strokes are blended onto what is beneath them. */
 export type BlendMode = 'normal' | 'multiply';
@@ -36,4 +43,11 @@ export interface Brush {
    * `complete` is false while the stroke is still being drawn.
    */
   outline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[];
+  /**
+   * What `outline` passes to freehandOutline for a finished stroke, or null
+   * when it draws the points another way (a tap). The partial eraser uses
+   * it to freeze a stroke's centre line before cutting. Optional: strokes
+   * of a brush without it are cut as raw points.
+   */
+  freehand?(points: readonly StrokePoint[], style: StrokeStyle): FreehandCall | null;
 }

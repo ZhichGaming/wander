@@ -43,6 +43,9 @@
  *   corrections still outstanding, its pointerUp is deferred until the last
  *   final update arrives or ESTIMATE_TIMEOUT_MS passes. A new drawing
  *   contact flushes (commits) a deferred up first.
+ * - A failed commit still releases the drawing contact and any deferred
+ *   lift, so a later stroke can start. Pointer-up cleanup runs in `finally`
+ *   (including after a deferred Pencil pointer-up throws).
  */
 
 import { Emitter } from '../Emitter';
@@ -322,15 +325,20 @@ export class PointerSession {
   private onUp(e: RawPointerEvent): void {
     const c = this.contacts.get(e.pointerId);
     if (!c) return;
-    if (c.role === 'draw') {
-      if (e.coalesced && e.coalesced.length > 0) this.feedMoves({ ...e, predicted: undefined });
-      this.noteEstimate(e, e.pointerId);
-      const input = this.toWorld(e, e.pointerId);
-      if (this.outstanding.has(e.pointerId)) this.deferUp(e.pointerId, input);
-      else this.engine.pointerUp(input);
+    try {
+      if (c.role === 'draw') {
+        if (e.coalesced && e.coalesced.length > 0) this.feedMoves({ ...e, predicted: undefined });
+        this.noteEstimate(e, e.pointerId);
+        const input = this.toWorld(e, e.pointerId);
+        if (this.outstanding.has(e.pointerId)) this.deferUp(e.pointerId, input);
+        else this.engine.pointerUp(input);
+      }
+    } finally {
+      // Always drop the contact, even if commit throws: a leftover 'draw'
+      // contact would make every later pen or finger ignored.
+      this.contacts.delete(e.pointerId);
+      if (c.role === 'navigate') this.resetNav();
     }
-    this.contacts.delete(e.pointerId);
-    if (c.role === 'navigate') this.resetNav();
   }
 
   /** Waits for outstanding corrections (or the timeout) before committing. */
@@ -341,14 +349,22 @@ export class PointerSession {
     this.deferred = { pointerId, input, cancelTimer };
   }
 
-  /** Commits a deferred lift now, if there is one. */
+  /**
+   * Commits a deferred lift now, if there is one. Errors from the commit are
+   * swallowed after clearing session state: a failed Pencil flush must not
+   * block the next stroke (this is also called from onDown).
+   */
   private flushDeferredUp(): void {
     const d = this.deferred;
     if (!d) return;
     this.deferred = null;
     d.cancelTimer();
     this.outstanding.delete(d.pointerId);
-    this.engine.pointerUp(d.input);
+    try {
+      this.engine.pointerUp(d.input);
+    } catch {
+      this.engine.cancelGesture();
+    }
   }
 
   /** Remembers that sample `s` of a drawing contact awaits corrections. */
@@ -385,8 +401,11 @@ export class PointerSession {
     if (!c) return;
     this.contacts.delete(pointerId);
     this.outstanding.delete(pointerId);
-    if (c.role === 'draw') this.engine.cancelGesture();
-    if (c.role === 'navigate') this.resetNav();
+    try {
+      if (c.role === 'draw') this.engine.cancelGesture();
+    } finally {
+      if (c.role === 'navigate') this.resetNav();
+    }
   }
 
   /** Pans by the centroid delta and zooms by the spread ratio around it. */

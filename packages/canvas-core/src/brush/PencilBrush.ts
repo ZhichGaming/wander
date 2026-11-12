@@ -15,7 +15,7 @@
 
 import type { Vec2 } from '../math/geometry';
 import type { StrokePoint, StrokeStyle } from '../model/StrokeStyle';
-import type { Brush } from './Brush';
+import type { Brush, FreehandCall } from './Brush';
 import { freehandOutline } from './freehand';
 import { dotOutline, isSinglePoint } from './outlinePath';
 import { resample, type PreparedPoint } from './samplePrep';
@@ -78,6 +78,32 @@ export function pencilOpacity(points: readonly StrokePoint[]): number {
   return 1 - (1 - SHADE_OPACITY) * median;
 }
 
+/**
+ * Samples and options the pencil hands to freehandOutline. JavaScript only
+ * (Stroke.toBaked); the live outline inlines the same call. See penFreehand.
+ */
+function pencilFreehand(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): FreehandCall {
+  const stylus = hasPressure(points);
+  const maxRadius = (style.width / 2) * SHADE_WIDTH;
+  const prepared: PreparedPoint[] = points.map((p) => ({
+    x: p.x,
+    y: p.y,
+    pressure: Math.max(0.01, pencilRadius(p, style, stylus) / maxRadius),
+  }));
+  return {
+    input: resample(prepared, style.width * SPACING),
+    options: {
+      size: maxRadius,
+      thinning: 1,
+      smoothing: 0.6,
+      streamline: 0.4,
+      capStart: true,
+      capEnd: true,
+      last: complete,
+    },
+  };
+}
+
 /** Outline whose width follows tilt (side shading) and pressure. Worklet. */
 export function pencilOutline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
   'worklet';
@@ -116,5 +142,10 @@ export class PencilBrush implements Brush {
   /** Outline whose width follows tilt and pressure (see pencilOutline). */
   outline(points: readonly StrokePoint[], style: StrokeStyle, complete: boolean): Vec2[] {
     return pencilOutline(points, style, complete);
+  }
+
+  /** The freehand call behind a finished pencil stroke; null for a tap. */
+  freehand(points: readonly StrokePoint[], style: StrokeStyle): FreehandCall | null {
+    return points.length === 0 || isSinglePoint(points) ? null : pencilFreehand(points, style, true);
   }
 }
