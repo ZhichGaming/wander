@@ -102,8 +102,13 @@ export function useLiveInkHandler(
     (events: NativePointerEvent[], started: number[]) => {
       const keys = uiOwnedInkKeys(engine);
       for (const k of started) keys.add(k);
-      for (const e of events) session.handle(e);
-      syncConfig();
+      try {
+        for (const e of events) session.handle(e);
+      } finally {
+        // Keep the UI-thread config in sync even if a commit throws; the
+        // session has already released the contact in its own finally.
+        syncConfig();
+      }
     },
     [engine, session, syncConfig],
   );

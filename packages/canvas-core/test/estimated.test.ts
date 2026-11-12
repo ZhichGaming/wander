@@ -161,4 +161,47 @@ describe('Estimated property corrections', () => {
     engine.redo();
     expect(strokes(engine)).toHaveLength(2);
   });
+
+  it('still accepts a new stroke when a deferred commit throws', () => {
+    const { engine, session, timer } = setup();
+    const execute = engine.history.execute.bind(engine.history);
+    let failNext = true;
+    engine.history.execute = (cmd) => {
+      if (failNext) {
+        failNext = false;
+        throw new Error('commit failed');
+      }
+      execute(cmd);
+    };
+    drawEstimated(session);
+    expect(strokes(engine)).toHaveLength(0);
+    timer.run();
+    expect(strokes(engine)).toHaveLength(0);
+    expect(engine.overlay.state.liveStroke).toBeNull();
+
+    session.handle(pen('down', 100, 40, 0.3, undefined, 2));
+    session.handle(pen('move', 110, 48, 0.3, undefined, 2));
+    session.handle(pen('up', 120, 56, 0.3, undefined, 2));
+    expect(strokes(engine)).toHaveLength(1);
+    expect(strokes(engine)[0].points[0].x).toBe(100);
+  });
+
+  it('starts a new stroke even if flushing a deferred commit throws', () => {
+    const { engine, session } = setup();
+    const execute = engine.history.execute.bind(engine.history);
+    let failNext = true;
+    engine.history.execute = (cmd) => {
+      if (failNext) {
+        failNext = false;
+        throw new Error('commit failed');
+      }
+      execute(cmd);
+    };
+    drawEstimated(session, 1, 0);
+    session.handle(pen('down', 100, 40, 0.3, undefined, 2));
+    session.handle(pen('move', 110, 48, 0.3, undefined, 2));
+    session.handle(pen('up', 120, 56, 0.3, undefined, 2));
+    expect(strokes(engine)).toHaveLength(1);
+    expect(strokes(engine)[0].points[0].x).toBe(100);
+  });
 });

@@ -97,14 +97,21 @@ export class PenTool implements Tool {
   /** Commits the stroke to the active layer. */
   onUp(e: PointerInput, ctx: ToolContext): void {
     if (!this.points || e.pointerId !== this.pointerId) return;
-    this.onMove(e, ctx);
-    const stroke = new Stroke(this.points, this.style);
-    this.points = null;
-    this.estimated.clear();
-    // Commit before clearing the live stroke, so a renderer can swap one for
-    // the other in the same frame instead of showing neither for a frame.
-    ctx.history.execute(new CreateObjects(ctx.doc.activeLayer.id, [stroke], 'Draw'));
-    ctx.overlay.setLiveStroke(null);
+    try {
+      this.onMove(e, ctx);
+      const stroke = new Stroke(this.points, this.style);
+      this.points = null;
+      this.estimated.clear();
+      // Commit before clearing the live stroke, so a renderer can swap one for
+      // the other in the same frame instead of showing neither for a frame.
+      ctx.history.execute(new CreateObjects(ctx.doc.activeLayer.id, [stroke], 'Draw'));
+    } finally {
+      // A failed commit must still drop the live stroke, or the overlay (and
+      // on device, UI-thread ink) keeps looking like a stroke is in progress.
+      this.points = null;
+      this.estimated.clear();
+      ctx.overlay.setLiveStroke(null);
+    }
   }
 
   /** Drops the stroke in progress. */

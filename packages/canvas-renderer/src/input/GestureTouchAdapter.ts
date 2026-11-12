@@ -44,14 +44,20 @@ export class GestureTouchAdapter {
 
   /** Touches lifted. */
   up(e: GestureTouchEvent): void {
-    this.forward(e, 'up');
-    for (const t of e.changedTouches) this.kinds.delete(t.id);
+    try {
+      this.forward(e, 'up');
+    } finally {
+      for (const t of e.changedTouches) this.kinds.delete(t.id);
+    }
   }
 
   /** Touches were cancelled by the system. */
   cancel(e: GestureTouchEvent): void {
-    this.forward(e, 'cancel');
-    for (const t of e.changedTouches) this.kinds.delete(t.id);
+    try {
+      this.forward(e, 'cancel');
+    } finally {
+      for (const t of e.changedTouches) this.kinds.delete(t.id);
+    }
   }
 
   /** Sends every changed touch to the session with one shared timestamp. */

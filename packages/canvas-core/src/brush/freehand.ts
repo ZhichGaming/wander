@@ -12,6 +12,15 @@
  * and leaves out simulated pressure, tapers and custom easings. The
  * 'worklet' strings are ordinary string statements outside a worklet
  * runtime, so this file stays free of React Native.
+ *
+ * Live vs bake: `centreLine`, `outlineOf` and `freehandOutline` run on the
+ * UI thread (OverlayLayer's inkPath derived value). Keep that path as a
+ * two-argument worklet with no extra captures. Baking (`outlineWithEdges`,
+ * `freehandCentre`, `freehandBakedOutline`) is JavaScript-only: it must
+ * not be marked 'worklet' and must not be called from a worklet. Folding
+ * bake's extra arguments, bitwise edge flags and object-returning brush
+ * helpers into the live worklets (bb7f609) stopped Apple Pencil input
+ * after the first stroke on iPad / Hermes with no JS error.
  */
 
 /** A 2D point as [x, y]. */
@@ -197,17 +206,13 @@ function centreLine(input: readonly FreehandInput[], o: FreehandOptions): Centre
 /**
  * Outline polygon around the centre line. Outline vertices closer than the
  * smoothing distance to the previous one are left out, which depends on
- * where the line starts. `edgesOut`, when given, records per point which
- * sides got a vertex (EDGE_LEFT | EDGE_RIGHT); `edgesIn` replays such a
- * record, so a part of a line gets the same vertices the whole line had.
+ * where the line starts.
+ *
+ * This is the live-ink worklet. Keep it two arguments, no default params,
+ * no bitwise flags, no extra captures: OverlayLayer's inkPath derived
+ * value calls it on the UI thread every frame.
  */
-function outlineOf(
-  points: CentrePoint[],
-  o: FreehandOptions,
-  trimEnd = true,
-  edgesIn?: readonly (number | undefined)[],
-  edgesOut?: (number | undefined)[],
-): P[] {
+function outlineOf(points: CentrePoint[], o: FreehandOptions): P[] {
   'worklet';
   if (points.length === 0 || o.size <= 0) return [];
   const totalLength = points[points.length - 1].runningLength;
@@ -226,7 +231,7 @@ function outlineOf(
   for (let i = 0; i < points.length; i++) {
     const { point, vector, runningLength, pressure } = points[i];
     const isLast = i === points.length - 1;
-    if (trimEnd && !isLast && totalLength - runningLength < END_NOISE_THRESHOLD) continue;
+    if (!isLast && totalLength - runningLength < END_NOISE_THRESHOLD) continue;
     radius = o.thinning ? radiusFor(o.size, o.thinning, pressure) : o.size / 2;
     if (firstRadius < 0) firstRadius = radius;
     radius = Math.max(MIN_RADIUS, radius);
@@ -258,22 +263,16 @@ function outlineOf(
       continue;
     }
     const offset = mul(per(lrp(nextVector, vector, nextDpr)), radius);
-    const edges = edgesIn ? edgesIn[i] : undefined;
     tempLeft = sub(point, offset);
-    const keepLeft =
-      edges !== undefined ? (edges & EDGE_LEFT) !== 0 : i <= 1 || dist2(prevLeft, tempLeft) > minDistance;
-    if (keepLeft) {
+    if (i <= 1 || dist2(prevLeft, tempLeft) > minDistance) {
       leftPts.push(tempLeft);
       prevLeft = tempLeft;
     }
     tempRight = add(point, offset);
-    const keepRight =
-      edges !== undefined ? (edges & EDGE_RIGHT) !== 0 : i <= 1 || dist2(prevRight, tempRight) > minDistance;
-    if (keepRight) {
+    if (i <= 1 || dist2(prevRight, tempRight) > minDistance) {
       rightPts.push(tempRight);
       prevRight = tempRight;
     }
-    if (edgesOut) edgesOut[i] = (keepLeft ? EDGE_LEFT : 0) | (keepRight ? EDGE_RIGHT : 0);
     prevVector = vector;
   }
 
@@ -327,6 +326,128 @@ export function freehandOutline(
   return outlineOf(centreLine(input, o), o).map((p) => ({ x: p[0], y: p[1] }));
 }
 
+/**
+ * JS-only copy of outlineOf that can record and replay which sides got a
+ * vertex (EDGE_LEFT | EDGE_RIGHT). A part of a baked line then gets the
+ * same vertices the whole line had. Not a worklet: live ink must not call
+ * this (see the file comment).
+ */
+function outlineWithEdges(
+  points: CentrePoint[],
+  o: FreehandOptions,
+  trimEnd: boolean,
+  edgesIn: readonly (number | undefined)[] | null,
+  edgesOut: (number | undefined)[] | null,
+): P[] {
+  if (points.length === 0 || o.size <= 0) return [];
+  const totalLength = points[points.length - 1].runningLength;
+  const minDistance = Math.pow(o.size * o.smoothing, 2);
+  const leftPts: P[] = [];
+  const rightPts: P[] = [];
+  let radius = radiusFor(o.size, o.thinning, points[points.length - 1].pressure);
+  let firstRadius = -1;
+  let prevVector = points[0].vector;
+  let prevLeft = points[0].point;
+  let prevRight = prevLeft;
+  let tempLeft: P = prevLeft;
+  let tempRight: P = prevRight;
+  let prevSharp = false;
+
+  for (let i = 0; i < points.length; i++) {
+    const { point, vector, runningLength, pressure } = points[i];
+    const isLast = i === points.length - 1;
+    if (trimEnd && !isLast && totalLength - runningLength < END_NOISE_THRESHOLD) continue;
+    radius = o.thinning ? radiusFor(o.size, o.thinning, pressure) : o.size / 2;
+    if (firstRadius < 0) firstRadius = radius;
+    radius = Math.max(MIN_RADIUS, radius);
+
+    const nextVector = (!isLast ? points[i + 1] : points[i]).vector;
+    const nextDpr = !isLast ? dpr(vector, nextVector) : 1.0;
+    const prevDpr = dpr(vector, prevVector);
+    const sharp = prevDpr < 0 && !prevSharp;
+    const nextSharp = nextDpr < 0;
+    if (sharp || nextSharp) {
+      const offset = mul(per(prevVector), radius);
+      const step = 1 / CORNER_CAP_SEGMENTS;
+      for (let t = 0; t <= 1; t += step) {
+        tempLeft = rotAround(sub(point, offset), point, FIXED_PI * t);
+        leftPts.push(tempLeft);
+        tempRight = rotAround(add(point, offset), point, FIXED_PI * -t);
+        rightPts.push(tempRight);
+      }
+      prevLeft = tempLeft;
+      prevRight = tempRight;
+      if (nextSharp) prevSharp = true;
+      continue;
+    }
+    prevSharp = false;
+    if (isLast) {
+      const offset = mul(per(vector), radius);
+      leftPts.push(sub(point, offset));
+      rightPts.push(add(point, offset));
+      continue;
+    }
+    const offset = mul(per(lrp(nextVector, vector, nextDpr)), radius);
+    const edges = edgesIn !== null ? edgesIn[i] : undefined;
+    tempLeft = sub(point, offset);
+    const keepLeft =
+      edges !== undefined ? (edges & EDGE_LEFT) !== 0 : i <= 1 || dist2(prevLeft, tempLeft) > minDistance;
+    if (keepLeft) {
+      leftPts.push(tempLeft);
+      prevLeft = tempLeft;
+    }
+    tempRight = add(point, offset);
+    const keepRight =
+      edges !== undefined ? (edges & EDGE_RIGHT) !== 0 : i <= 1 || dist2(prevRight, tempRight) > minDistance;
+    if (keepRight) {
+      rightPts.push(tempRight);
+      prevRight = tempRight;
+    }
+    if (edgesOut !== null) edgesOut[i] = (keepLeft ? EDGE_LEFT : 0) | (keepRight ? EDGE_RIGHT : 0);
+    prevVector = vector;
+  }
+
+  const firstPoint: P = [points[0].point[0], points[0].point[1]];
+  const lastPoint: P =
+    points.length > 1
+      ? [points[points.length - 1].point[0], points[points.length - 1].point[1]]
+      : add(points[0].point, [1, 1]);
+  const startCap: P[] = [];
+  const endCap: P[] = [];
+  if (points.length === 1) {
+    const r = firstRadius >= 0 ? firstRadius : radius;
+    const start = prj(firstPoint, uni(per(sub(firstPoint, add(firstPoint, [1, 1])))), -r);
+    const dot: P[] = [];
+    const step = 1 / START_CAP_SEGMENTS;
+    for (let t = step; t <= 1; t += step) dot.push(rotAround(start, firstPoint, FIXED_PI * 2 * t));
+    return dot;
+  }
+  if (o.capStart) {
+    const step = 1 / START_CAP_SEGMENTS;
+    for (let t = step; t <= 1; t += step) startCap.push(rotAround(rightPts[0], firstPoint, FIXED_PI * t));
+  } else {
+    const corners = sub(leftPts[0], rightPts[0]);
+    const a = mul(corners, 0.5);
+    const b = mul(corners, 0.51);
+    startCap.push(sub(firstPoint, a), sub(firstPoint, b), add(firstPoint, b), add(firstPoint, a));
+  }
+  const last = points[points.length - 1].vector;
+  const direction = per([-last[0], -last[1]]);
+  if (o.capEnd) {
+    const start = prj(lastPoint, direction, radius);
+    const step = 1 / END_CAP_SEGMENTS;
+    for (let t = step; t < 1; t += step) endCap.push(rotAround(start, lastPoint, FIXED_PI * 3 * t));
+  } else {
+    endCap.push(
+      add(lastPoint, mul(direction, radius)),
+      add(lastPoint, mul(direction, radius * 0.99)),
+      sub(lastPoint, mul(direction, radius * 0.99)),
+      sub(lastPoint, mul(direction, radius)),
+    );
+  }
+  return leftPts.concat(endCap, rightPts.reverse(), startCap);
+}
+
 /** How to draw a frozen centre line (see freehandCentre); all plain data. */
 export interface BakedOptions {
   /** Base diameter; a sample's radius is `size` times its pressure. */
@@ -342,7 +463,7 @@ export interface BakedOptions {
 
 /** A frozen centre sample: `pressure` is the radius as a fraction of the size. */
 export interface CentreSample extends FreehandInput {
-  /** Which outline sides have a vertex here (see outlineOf); absent on new cut ends. */
+  /** Which outline sides have a vertex here (see outlineWithEdges); absent on new cut ends. */
   edges?: number;
 }
 
@@ -355,7 +476,7 @@ export interface CentreSample extends FreehandInput {
 export function freehandCentre(input: readonly FreehandInput[], o: FreehandOptions): CentreSample[] {
   const line = centreLine(input, o);
   const edges: (number | undefined)[] = [];
-  outlineOf(line, o, true, undefined, edges);
+  outlineWithEdges(line, o, true, null, edges);
   return line.map((c, i) => {
     const sample: CentreSample = {
       x: c.point[0],
@@ -399,5 +520,5 @@ export function freehandBakedOutline(
     capEnd: b.capEnd,
     last: true,
   };
-  return outlineOf(points, o, b.trimEnd, edges).map((p) => ({ x: p[0], y: p[1] }));
+  return outlineWithEdges(points, o, b.trimEnd, edges, null).map((p) => ({ x: p[0], y: p[1] }));
 }
