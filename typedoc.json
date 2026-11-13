@@ -1,0 +1,11 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "@wander/canvas-core",
+  "entryPoints": ["packages/canvas-core/src/index.ts"],
+  "tsconfig": "packages/canvas-core/tsconfig.json",
+  "out": "docs/public/api",
+  "readme": "none",
+  "excludeExternals": true,
+  "excludePrivate": true,
+  "excludeInternal": true
+}

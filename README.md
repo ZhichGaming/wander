@@ -29,6 +29,10 @@ Apple Pencil pressure and tilt come from a native module, so they need a develop
 
 Every source file starts with a header naming the team and the file's purpose, and every function, method and class gets a docstring. Course requirement.
 
+## Docs
+
+`npm run docs` serves a local guide for the canvas library and generates the `@wander/canvas-core` API reference. The page map is `docs/STRUCTURE.md`.
+
 ## Checks
 
 ```bash
