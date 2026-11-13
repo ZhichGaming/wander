@@ -42,3 +42,8 @@ yarn-error.*
 
 # Skia web runtime, copied from node_modules by the postinstall script
 /public/canvaskit.wasm
+
+# generated canvas docs
+/docs/public/api
+/docs/.vitepress/cache
+/docs/.vitepress/dist
