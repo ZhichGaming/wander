@@ -16,6 +16,8 @@ import {
   type Tool,
 } from '../canvas-engine';
 
+const PALETTE = ['#1e1e1e', '#e53935', '#1e88e5', '#43a047', '#fdd835'];
+
 interface OverlayProps {
   engine: CanvasEngine;
 }
@@ -25,7 +27,7 @@ interface OverlayAction {
   run: () => void;
 }
 
-function PencilReadout({ engine }: { engine: CanvasEngine }) {
+function PencilReadout({ engine }: OverlayProps) {
   const [text, setText] = useState('no Pencil input yet');
 
   useEffect(() => {
@@ -64,6 +66,10 @@ export default function Overlay({ engine }: OverlayProps) {
   const select = (label: string, tool: Tool) => {
     engine.setTool(tool);
     setToolName(label);
+
+    if (tool instanceof PenTool) {
+      setSelectedColor(tool.getStyle().color);
+    } 
   };
 
   const actions: OverlayAction[] = [
@@ -83,6 +89,18 @@ export default function Overlay({ engine }: OverlayProps) {
     },
   ];
 
+  const [selectedColor, setSelectedColor] = useState(
+    engine.tool instanceof PenTool
+      ? engine.tool.getStyle().color
+      : DEFAULT_PEN_STYLE.color,
+    );
+  
+  const chooseColor = (color: string) => {
+    if (!(engine.tool instanceof PenTool)) return;
+    engine.tool.setStyle({ color });
+    setSelectedColor(color);
+  };
+
   return (
     <View
       style={[styles.toolbar, { top: insets.top + 8, left: insets.left + 12 }]}
@@ -100,6 +118,24 @@ export default function Overlay({ engine }: OverlayProps) {
           <Text style={styles.buttonText}>{action.label}</Text>
         </Pressable>
       ))}
+
+      {engine.tool instanceof PenTool && (
+        <View style={styles.palette}>
+          {PALETTE.map((color) => (
+            <Pressable
+              key={color}
+              accessibilityRole="button"
+              accessibilityLabel={`Choose ${color}`}
+              onPress={() => chooseColor(color)}
+              style={[
+                styles.swatch,
+                { backgroundColor: color },
+                color === selectedColor && styles.selectedSwatch,
+              ]}
+            />
+          ))}
+        </View>
+      )}
       <PencilReadout engine={engine} />
     </View>
   );
@@ -134,5 +170,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     alignSelf: 'center',
     marginLeft: 6,
+  },
+
+  palette: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  swatch: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#999',
+  },
+  selectedSwatch: {
+    borderWidth: 3,
+    borderColor: '#2563eb',
   },
 });
