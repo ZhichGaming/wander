@@ -12,6 +12,7 @@ import {
   deleteSelection,
   isPencilInputAvailable,
   pointerSessionFor,
+  type BrushKind,
   type DocumentJSON,
   type Tool,
 } from '../canvas-engine';
@@ -64,12 +65,12 @@ export default function Overlay({ engine }: OverlayProps) {
   const insets = useSafeAreaInsets();
 
   const select = (label: string, tool: Tool) => {
+     if (tool instanceof PenTool) {
+      const brush = tool.getStyle().brush;
+      tool.setStyle({ color: toolColors[brush] });
+    } 
     engine.setTool(tool);
     setToolName(label);
-
-    if (tool instanceof PenTool) {
-      setSelectedColor(tool.getStyle().color);
-    } 
   };
 
   const actions: OverlayAction[] = [
@@ -89,17 +90,25 @@ export default function Overlay({ engine }: OverlayProps) {
     },
   ];
 
-  const [selectedColor, setSelectedColor] = useState(
-    engine.tool instanceof PenTool
-      ? engine.tool.getStyle().color
-      : DEFAULT_PEN_STYLE.color,
-    );
-  
+  const [toolColors, setToolColors] = useState<Record<BrushKind, string>>({
+    pen: DEFAULT_PEN_STYLE.color,
+    pencil: DEFAULT_PENCIL_STYLE.color,
+    highlighter: DEFAULT_HIGHLIGHTER_STYLE.color,
+  });
+
   const chooseColor = (color: string) => {
-    if (!(engine.tool instanceof PenTool)) return;
-    engine.tool.setStyle({ color });
-    setSelectedColor(color);
+    const activeTool = engine.tool;
+    if (!(activeTool instanceof PenTool)) return;
+
+    const brush = activeTool.getStyle().brush;
+    activeTool.setStyle({ color });
+    setToolColors((colors) => ({ ...colors, [brush]: color }));
   };
+
+  const activeBrush =
+    engine.tool instanceof PenTool ? engine.tool.getStyle().brush : null;
+  
+  const selectedColor = activeBrush ? toolColors[activeBrush] : null;
 
   return (
     <View
