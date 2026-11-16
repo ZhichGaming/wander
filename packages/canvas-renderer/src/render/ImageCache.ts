@@ -13,6 +13,7 @@ export class ImageCache {
   /** Fires with the URI of every image that finished loading. */
   readonly loaded = new Emitter<string>();
   private images = new Map<string, SkImage | 'loading' | 'failed'>();
+  private pending = new Set<Promise<void>>();
 
   /** The decoded image for `uri`, or null while loading or after a failure. */
   get(uri: string): SkImage | null {
@@ -24,10 +25,15 @@ export class ImageCache {
     return typeof entry === 'string' ? null : entry;
   }
 
+  /** Resolves once every image requested so far has loaded or failed. */
+  async settled(): Promise<void> {
+    while (this.pending.size > 0) await Promise.all(this.pending);
+  }
+
   /** Starts decoding `uri` in the background. */
   private load(uri: string): void {
     this.images.set(uri, 'loading');
-    Skia.Data.fromURI(uri)
+    const done = Skia.Data.fromURI(uri)
       .then((data) => {
         const image = Skia.Image.MakeImageFromEncoded(data);
         this.images.set(uri, image ?? 'failed');
@@ -35,6 +41,10 @@ export class ImageCache {
       })
       .catch(() => {
         this.images.set(uri, 'failed');
+      })
+      .finally(() => {
+        this.pending.delete(done);
       });
+    this.pending.add(done);
   }
 }
