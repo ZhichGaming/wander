@@ -6,6 +6,7 @@
  * Placeholder.
  */
 
+import { CanvasEngine } from "../canvas-engine";
 import Agent, { Tool } from "./agent";
 import AnthropicProvider from "./providers/anthropic";
 
@@ -14,10 +15,13 @@ export default class Harness {
         anthropic: new AnthropicProvider("claude-haiku-5-5"),
     }
 
+    engine: CanvasEngine;
+
     tools: Tool[] = [];
     agent!: Agent;
 
-    constructor() {
+    constructor(engine: CanvasEngine) {
+        this.engine = engine;
         this.load();
     }
 
@@ -37,5 +41,3 @@ export default class Harness {
         // TODO: Implement save
     }
 }
-
-export const harness = new Harness();

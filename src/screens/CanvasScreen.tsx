@@ -8,10 +8,12 @@ import { StyleSheet, Text, View } from 'react-native';
 import { CanvasEngine, CanvasView } from '../canvas-engine';
 import Overlay from '../ui/Overlay';
 import Sidebar from '../sidebar';
+import Harness from '../harness';
 
 /** Full-screen layout: canvas on the left, retractable sidebar on the right. */
 export default function CanvasScreen() {
   const [engine] = useState(() => new CanvasEngine());
+  const [harness] = useState(() => new Harness(engine));
 
   return (
     <View style={styles.root}>
