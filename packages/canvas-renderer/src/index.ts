@@ -11,6 +11,7 @@ export { CanvasView, type CanvasViewProps } from './CanvasView';
 export { ensureSkiaWeb } from './render/loadSkiaWeb';
 export { visibleSpacing } from './render/background';
 export { renderRegion, type RenderRegionOptions, type RenderedRegion } from './render/renderRegion';
+export { renderAgentView, drawCoordinateGrid, type AgentView, type AgentViewOptions } from './render/agentView';
 export { useCanvasWheel } from './input/useCanvasWheel';
 export { pointerSessionFor } from './input/pointerSessionFor';
 export { GestureTouchAdapter } from './input/GestureTouchAdapter';

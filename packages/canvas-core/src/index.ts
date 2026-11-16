@@ -54,6 +54,8 @@ export { PageObject, type PageJSON, type PageSource, type PageRect } from './mod
 export { buildExportPlan, type ExportPlan, type ExportPage, type ExportAnnotation } from './export/exportPlan';
 export { exportAnnotatedPdf, type BytesLoader } from './export/pdfExport';
 
+export * from './agent/view';
+
 export {
   PointerSession,
   SECOND_FINGER_WINDOW_MS,
