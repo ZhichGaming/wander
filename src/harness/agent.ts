@@ -22,12 +22,26 @@ export default class Agent {
 
     async run() {
         for (let i = 0; i < this.TURN_LIMIT; i++) {
-            const response = await this.provider.run(this.messages);
-            if (response.text) 
-                this.messages.push(new Message(Role.ASSISTANT, response.text));
-            // if (response.tools.length > 0) {
-            //     this.messages.push(new Message(Role.TOOL, response.tools[0].name, response.tools[0].arguments));
-            // }
+            const response = await this.provider.run(this.messages, this.tools);
+            this.messages.push(Message.assistant(response.parts));
+
+            if (response.tools.length === 0) return;
+
+            for (const call of response.tools)
+                this.messages.push(await this.runTool(call));
+        }
+    }
+
+    private async runTool(call: ToolCall): Promise<Message> {
+        const tool = this.tools.find(t => t.name === call.name);
+        if (!tool)
+            return new Message(Role.TOOL, `Unknown tool: ${call.name}`, call.id, true);
+        try {
+            const result = await tool.func(call.arguments);
+            const content = typeof result === "string" ? result : JSON.stringify(result) ?? "";
+            return new Message(Role.TOOL, content, call.id);
+        } catch (e) {
+            return new Message(Role.TOOL, String(e), call.id, true);
         }
     }
 
@@ -44,16 +58,68 @@ export enum Role {
     USER = "user",
     ASSISTANT = "assistant",
     SYSTEM = "system",
-    // TOOL = "tool",
+    TOOL = "tool",
 }
 
 export class Message {
     role: Role;
+    // The message text. On ASSISTANT messages, all text parts joined.
     content: string;
+    // ASSISTANT only: the response in the exact order the model produced it.
+    parts: Part[];
+    // TOOL only: the call this message is the result of.
+    toolCallId?: string;
+    isError: boolean;
 
-    constructor(role: Role, content: string) {
+    constructor(role: Role, content: string, toolCallId?: string, isError = false, parts: Part[] = []) {
         this.role = role;
         this.content = content;
+        this.toolCallId = toolCallId;
+        this.isError = isError;
+        this.parts = parts;
+    }
+
+    static assistant(parts: Part[]): Message {
+        return new Message(Role.ASSISTANT, textOf(parts), undefined, false, parts);
+    }
+
+    get toolCalls(): ToolCall[] {
+        return toolCallsOf(this.parts);
+    }
+}
+
+export type Part = TextPart | Thinking | ToolCall;
+
+export class TextPart {
+    readonly type = "text";
+    text: string;
+
+    constructor(text: string) {
+        this.text = text;
+    }
+}
+
+export function textOf(parts: Part[]): string {
+    return parts.filter((p): p is TextPart => p.type === "text").map(p => p.text).join("");
+}
+
+export function toolCallsOf(parts: Part[]): ToolCall[] {
+    return parts.filter((p): p is ToolCall => p.type === "tool_call");
+}
+
+export class Thinking {
+    readonly type = "thinking";
+    // Readable reasoning; empty when the provider hides or redacts it.
+    text: string;
+    // Opaque provider data that must be sent back as is (a signature, encrypted reasoning).
+    signature?: string;
+    // The provider withheld the reasoning; only `signature` carries it.
+    redacted: boolean;
+
+    constructor(text: string, signature?: string, redacted = false) {
+        this.text = text;
+        this.signature = signature;
+        this.redacted = redacted;
     }
 }
 
@@ -121,10 +187,13 @@ export enum ArgumentType {
 }
 
 export class ToolCall {
+    readonly type = "tool_call";
+    id: string;
     name: string;
     arguments: any;
 
-    constructor(name: string, args: any) {
+    constructor(id: string, name: string, args: any) {
+        this.id = id;
         this.name = name;
         this.arguments = args;
     }

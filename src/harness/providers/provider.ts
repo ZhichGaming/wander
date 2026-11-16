@@ -1,4 +1,4 @@
-import { Message, Tool, ToolCall } from "../agent";
+import { Message, Part, Tool, ToolCall, textOf, toolCallsOf } from "../agent";
 
 export interface Provider {
     models: Model[];
@@ -32,13 +32,20 @@ export class Model {
 }
 
 export class ProviderResponse {
-    text: string | undefined;
-    tools: ToolCall[];
+    // The response in the exact order the model produced it.
+    parts: Part[];
     error: string | undefined;
 
-    constructor(text: string | undefined, tools: ToolCall[] | undefined, error: string | undefined) {
-        this.text = text ?? undefined;
-        this.tools = tools ?? [];
-        this.error = error ?? undefined;
+    constructor(parts: Part[], error?: string) {
+        this.parts = parts;
+        this.error = error;
+    }
+
+    get text(): string {
+        return textOf(this.parts);
+    }
+
+    get tools(): ToolCall[] {
+        return toolCallsOf(this.parts);
     }
 }
