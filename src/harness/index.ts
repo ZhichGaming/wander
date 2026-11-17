@@ -9,6 +9,7 @@
 import { CanvasEngine } from "../canvas-engine";
 import Agent, { Tool } from "./agent";
 import AnthropicProvider from "./providers/anthropic";
+import { viewTools } from "./tools";
 
 export default class Harness {
     private providers = {
@@ -22,6 +23,7 @@ export default class Harness {
 
     constructor(engine: CanvasEngine) {
         this.engine = engine;
+        this.tools = viewTools(engine);
         this.load();
     }
 

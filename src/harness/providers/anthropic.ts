@@ -30,7 +30,13 @@ export default class AnthropicProvider implements Provider {
                 const block: Anthropic.ToolResultBlockParam = {
                     type: "tool_result",
                     tool_use_id: m.toolCallId!,
-                    content: m.content,
+                    content: m.images.length === 0 ? m.content : [
+                        { type: "text", text: m.content },
+                        ...m.images.map(img => ({
+                            type: "image" as const,
+                            source: { type: "base64" as const, media_type: img.mediaType, data: img.data },
+                        })),
+                    ],
                     is_error: m.isError,
                 };
                 // Anthropic wants every result for one turn in a single user message.

@@ -38,6 +38,8 @@ export default class Agent {
             return new Message(Role.TOOL, `Unknown tool: ${call.name}`, call.id, true);
         try {
             const result = await tool.func(call.arguments);
+            if (result instanceof ToolResult)
+                return new Message(Role.TOOL, result.text, call.id, false, [], result.images);
             const content = typeof result === "string" ? result : JSON.stringify(result) ?? "";
             return new Message(Role.TOOL, content, call.id);
         } catch (e) {
@@ -70,13 +72,16 @@ export class Message {
     // TOOL only: the call this message is the result of.
     toolCallId?: string;
     isError: boolean;
+    // TOOL only: images returned with the result, shown after `content`.
+    images: ImageData[];
 
-    constructor(role: Role, content: string, toolCallId?: string, isError = false, parts: Part[] = []) {
+    constructor(role: Role, content: string, toolCallId?: string, isError = false, parts: Part[] = [], images: ImageData[] = []) {
         this.role = role;
         this.content = content;
         this.toolCallId = toolCallId;
         this.isError = isError;
         this.parts = parts;
+        this.images = images;
     }
 
     static assistant(parts: Part[]): Message {
@@ -89,6 +94,22 @@ export class Message {
 }
 
 export type Part = TextPart | Thinking | ToolCall;
+
+// Base64 image
+export interface ImageData {
+    mediaType: "image/png" | "image/jpeg";
+    data: string;
+}
+
+export class ToolResult {
+    text: string;
+    images: ImageData[];
+
+    constructor(text: string, images: ImageData[] = []) {
+        this.text = text;
+        this.images = images;
+    }
+}
 
 export class TextPart {
     readonly type = "text";
