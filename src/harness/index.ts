@@ -6,17 +6,24 @@
  * Placeholder.
  */
 
-import Agent from "./agent";
+import { CanvasEngine } from "../canvas-engine";
+import Agent, { Tool } from "./agent";
 import AnthropicProvider from "./providers/anthropic";
+import { viewTools } from "./tools";
 
 export default class Harness {
     private providers = {
         anthropic: new AnthropicProvider("claude-haiku-5-5"),
     }
 
+    engine: CanvasEngine;
+
+    tools: Tool[] = [];
     agent!: Agent;
 
-    constructor() {
+    constructor(engine: CanvasEngine) {
+        this.engine = engine;
+        this.tools = viewTools(engine);
         this.load();
     }
 
@@ -24,7 +31,7 @@ export default class Harness {
         // TODO: Implement load
         // Load providers file, load agent file
 
-        this.agent = new Agent([], this.providers.anthropic);
+        this.agent = new Agent([], this.providers.anthropic, this.tools);
     }
 
     save() {
@@ -36,5 +43,3 @@ export default class Harness {
         // TODO: Implement save
     }
 }
-
-export const harness = new Harness();
