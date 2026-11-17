@@ -20,6 +20,7 @@ export default defineConfig({
           { text: 'Input', link: '/guides/input' },
           { text: 'Rendering', link: '/guides/rendering' },
           { text: 'Save, load, and PDF', link: '/guides/files' },
+          { text: 'Agents: seeing and writing', link: '/guides/agents' },
         ],
       },
     ],
