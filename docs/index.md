@@ -22,6 +22,7 @@ app (src/)  →  @wander/canvas-renderer  →  @wander/canvas-core
 - [Input](./guides/input.md)
 - [Rendering](./guides/rendering.md)
 - [Save, load, and PDF](./guides/files.md)
+- [Agents: seeing and writing](./guides/agents.md)
 
 The course architecture note stays in the repo at `packages/canvas-core/docs/ARCHITECTURE.md`. The generated API reference for `@wander/canvas-core` is at [/api/](/api/) after `npm run docs`.
 

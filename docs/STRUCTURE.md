@@ -25,6 +25,7 @@ The course architecture note stays at `packages/canvas-core/docs/ARCHITECTURE.md
 7. `docs/guides/input.md` — `PointerSession`, `InputMode`, wheel and pinch, Apple Pencil events from `@wander/pencil-input`, and what Expo Go cannot report.
 8. `docs/guides/rendering.md` — `CanvasView`, camera transform, scene cache, live ink on the UI thread, web CanvasKit.
 9. `docs/guides/files.md` — JSON save and load, `PageObject`, `buildExportPlan`, `exportAnnotatedPdf`.
+10. `docs/guides/agents.md` — `renderAgentView` and its parts (`contentBounds`, `viewRect`, `gridStepFor`, `describeView`, `renderRegion`, `drawCoordinateGrid`), `layoutHandwriting` with its math subset, `layoutSketch`, `layoutGraph`, `inkStrokes`, hand styles, continuing a line, supported characters and limits.
 
 ## Voice
 
