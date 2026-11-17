@@ -55,6 +55,24 @@ export { buildExportPlan, type ExportPlan, type ExportPage, type ExportAnnotatio
 export { exportAnnotatedPdf, type BytesLoader } from './export/pdfExport';
 
 export * from './agent/view';
+export * from './handwriting/style';
+export {
+  layoutHandwriting,
+  inkStrokes,
+  HANDWRITING_CHARACTERS,
+  type Ink,
+  type Handwriting,
+  type HandwritingOptions,
+} from './handwriting/handwriting';
+export { MATH_COMMANDS } from './handwriting/math';
+export {
+  layoutSketch,
+  layoutGraph,
+  type Shape,
+  type SketchOptions,
+  type Graph,
+  type GraphSeries,
+} from './handwriting/sketch';
 
 export {
   PointerSession,
