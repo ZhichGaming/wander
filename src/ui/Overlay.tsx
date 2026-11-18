@@ -19,6 +19,10 @@ import {
 
 const PALETTE = ['#1e1e1e', '#e53935', '#1e88e5', '#43a047', '#ffe14d'];
 
+const Customization = ['color', 'width', 'opacity'] as const;
+
+type CustomizationOption = (typeof Customization)[number];
+
 interface OverlayProps {
   engine: CanvasEngine;
 }
@@ -64,13 +68,20 @@ export default function Overlay({ engine }: OverlayProps) {
   const [saved, setSaved] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
 
+  const [openCustomization, setOpenCustomization] =
+   useState<CustomizationOption | null>(null);
+
   const select = (label: string, tool: Tool) => {
      if (tool instanceof PenTool) {
       const brush = tool.getStyle().brush;
-      tool.setStyle({ color: toolColors[brush] });
+      tool.setStyle({
+        color: toolColors[brush],
+        width: toolWidths[brush],
+      }); 
     } 
     engine.setTool(tool);
     setToolName(label);
+    setOpenCustomization(null);
   };
 
   const actions: OverlayAction[] = [
@@ -110,6 +121,20 @@ export default function Overlay({ engine }: OverlayProps) {
   
   const selectedColor = activeBrush ? toolColors[activeBrush] : null;
 
+  const [toolWidths, setToolWidths] = useState<Record<BrushKind, number>>({
+    pen: DEFAULT_PEN_STYLE.width,
+    pencil: DEFAULT_PENCIL_STYLE.width,
+    highlighter: DEFAULT_HIGHLIGHTER_STYLE.width,
+  });
+
+  const chooseWidth = (width: number) => {
+    const activeTool = engine.tool;
+    if (!(activeTool instanceof PenTool)) return; 
+    const brush = activeTool.getStyle().brush;
+    activeTool.setStyle({ width });
+    setToolWidths((widths) => ( { ...widths, [brush]: width }));
+  };
+
   return (
     <View
       style={[styles.toolbar, { top: insets.top + 8, left: insets.left + 12 }]}
@@ -137,20 +162,55 @@ export default function Overlay({ engine }: OverlayProps) {
             </Pressable>
 
             {hasPalette && toolName === action.label && (
-              <View style={styles.palette}>
-                {PALETTE.map((color) => (
-                  <Pressable
-                    key={color}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Choose ${color}`}
-                    onPress={() => chooseColor(color)}
-                    style={[
-                      styles.swatch,
-                      { backgroundColor: color },
-                      color === selectedColor && styles.selectedSwatch,
-                    ]}
-                  />
-                ))}
+              <View style={styles.customizationPanel}>
+                <View style={styles.customizationButtons}>
+                  {Customization.map((option) => (
+                    <View key={option} style={styles.customizationOption}>
+                      <Pressable
+                        onPress={() =>
+                          setOpenCustomization((current) =>
+                            current === option ? null : option
+                          )
+                        }
+                        style={styles.button}
+                      >
+                        <Text style={styles.buttonText}>{option}</Text>
+                      </Pressable>
+
+                      {option === 'color' && openCustomization === 'color' && (
+                        <View style={styles.palette}>
+                          {/* Keep your existing PALETTE.map(...) swatch buttons here */}
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+
+                {openCustomization === 'color' && (
+                  <View style={styles.palette}>
+                    {PALETTE.map((color) => (
+                      <Pressable
+                        key={color}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Choose ${color}`}
+                        onPress={() => chooseColor(color)}
+                        style={[
+                          styles.swatch,
+                          { backgroundColor: color },
+                          color === selectedColor && styles.selectedSwatch,
+                        ]}
+                      />
+                    ))}
+                  </View>
+                )}
+
+                {openCustomization === 'width' && (
+                  <Text>Put width controls here</Text>
+                )}
+
+                {openCustomization === 'opacity' && (
+                  <Text>Put opacity controls here</Text>
+                )}
               </View>
             )}
                   </View>
@@ -198,6 +258,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     alignSelf: 'center',
     marginLeft: 6,
+    paddingBottom: 10,
   },
 
   brushGroup: {
@@ -206,9 +267,10 @@ const styles = StyleSheet.create({
 
   palette: {
     position: 'absolute',
-    left: '100%',
-    top: 0,
+    left: 0,
+    top: '100%',
     marginLeft: 8,
+    marginTop: 6,
     zIndex: 10,
     elevation: 5,
     flexDirection: 'row',
@@ -231,5 +293,40 @@ const styles = StyleSheet.create({
   selectedSwatch: {
     borderWidth: 3,
     borderColor: '#2563eb',
+  },
+  traitwidth: {
+    position: 'absolute',
+    left: '100%',
+    top: 0,
+    marginLeft: 8,
+    zIndex: 10,
+    elevation: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fff',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#ccc',
+  },
+  customizationOption: {
+    position: 'relative',
+  },
+  customizationPanel: {
+    position: 'absolute',
+    left: '100%',
+    top: 0,
+    marginLeft: 8,
+    zIndex: 10,
+    elevation: 5,
+    backgroundColor: '#fff',
+    padding: 8,
+    borderRadius: 8,
+  },
+  customizationButtons: {
+    flexDirection: 'row',
+    gap: 6,
   },
 });
