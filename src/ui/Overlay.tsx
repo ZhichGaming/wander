@@ -17,7 +17,7 @@ import {
   type Tool,
 } from '../canvas-engine';
 
-const PALETTE = ['#1e1e1e', '#e53935', '#1e88e5', '#43a047', '#fdd835'];
+const PALETTE = ['#1e1e1e', '#e53935', '#1e88e5', '#43a047', '#ffe14d'];
 
 interface OverlayProps {
   engine: CanvasEngine;
@@ -115,56 +115,73 @@ export default function Overlay({ engine }: OverlayProps) {
       style={[styles.toolbar, { top: insets.top + 8, left: insets.left + 12 }]}
       pointerEvents="box-none"
     >
-      {actions.map((action) => (
-        <Pressable
-          key={action.label}
-          onPress={action.run}
-          style={[
-            styles.button,
-            action.label === toolName && styles.active,
-          ]}
-        >
-          <Text style={styles.buttonText}>{action.label}</Text>
-        </Pressable>
-      ))}
+      {actions.map((action) => {
+        const hasPalette =
+          action.label === 'pen' ||
+          action.label === 'pencil' ||
+          action.label === 'highlighter';
 
-      {engine.tool instanceof PenTool && (
-        <View style={styles.palette}>
-          {PALETTE.map((color) => (
+        return (
+          <View
+            key={action.label}
+            style={hasPalette ? styles.brushGroup : undefined}
+          >
             <Pressable
-              key={color}
-              accessibilityRole="button"
-              accessibilityLabel={`Choose ${color}`}
-              onPress={() => chooseColor(color)}
+              onPress={action.run}
               style={[
-                styles.swatch,
-                { backgroundColor: color },
-                color === selectedColor && styles.selectedSwatch,
+                styles.button,
+                action.label === toolName && styles.active,
               ]}
-            />
-          ))}
-        </View>
-      )}
+            >
+              <Text style={styles.buttonText}>{action.label}</Text>
+            </Pressable>
+
+            {hasPalette && toolName === action.label && (
+              <View style={styles.palette}>
+                {PALETTE.map((color) => (
+                  <Pressable
+                    key={color}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Choose ${color}`}
+                    onPress={() => chooseColor(color)}
+                    style={[
+                      styles.swatch,
+                      { backgroundColor: color },
+                      color === selectedColor && styles.selectedSwatch,
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
+                  </View>
+        );
+      })}
+
       <PencilReadout engine={engine} />
     </View>
   );
 }
 
+
 const styles = StyleSheet.create({
   toolbar: {
+    backgroundColor: '#fff',
     position: 'absolute',
-    right: 12,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     gap: 6,
   },
   button: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 6,
+    borderRadius: 10,
     backgroundColor: '#f1f3f5',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#ccc',
+    alignSelf: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    width: 100,
   },
   active: {
     backgroundColor: '#dbe7ff',
@@ -175,16 +192,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   readout: {
+    maxWidth: 100,
+    textAlign: 'center',
     color: '#666',
     fontSize: 11,
     alignSelf: 'center',
     marginLeft: 6,
   },
 
+  brushGroup: {
+    position: 'relative',
+  },
+
   palette: {
+    position: 'absolute',
+    left: '100%',
+    top: 0,
+    marginLeft: 8,
+    zIndex: 10,
+    elevation: 5,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    backgroundColor: '#fff',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#ccc',
   },
   swatch: {
     width: 32,

@@ -51,7 +51,7 @@ export const DEFAULT_HIGHLIGHTER_STYLE: Readonly<StrokeStyle> = Object.freeze({
 /** Default pencil style: graphite grey; tilt the Pencil to shade. */
 export const DEFAULT_PENCIL_STYLE: Readonly<StrokeStyle> = Object.freeze({
   brush: 'pencil',
-  color: '#2b2b2b',
+  color: '#1e1e1e',
   width: 2.5,
   opacity: 0.9,
 });
