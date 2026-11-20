@@ -7,7 +7,7 @@
  */
 
 import { StyleSheet } from 'react-native';
-import {Text, TextInput, View, Pressable} from 'react-native';
+import { TextInput, View, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Ionicons } from '@expo/vector-icons';
 

@@ -1,4 +1,4 @@
-import { CanvasEngine, contentBounds, inflateRect, isEmptyRect, renderAgentView, type Rect } from "../canvas-engine";
+import { CanvasEngine, contentBounds, CreateObjects, DeleteObjects, inflateRect, inkStrokes, isEmptyRect, layoutHandwriting, renderAgentView, type Rect } from "../canvas-engine";
 import { Argument, ArgumentType, Tool, ToolResult } from "./agent";
 
 async function view(engine: CanvasEngine, rect: Rect): Promise<ToolResult> {
@@ -43,18 +43,55 @@ export function viewTools(engine: CanvasEngine): Tool[] {
     ];
 }
 
-export function writeText(engine: CanvasEngine, text: string, x: number, y: number) {
-
+export function writeTools(engine: CanvasEngine): Tool[] {
+    return [
+        new Tool(
+            "write_text",
+            "Writes text at a given position on the canvas.",
+            [
+                new Argument("text", "The text to write.", true, ArgumentType.STRING),
+                new Argument("x", "The x position to write the text at.", true, ArgumentType.NUMBER),
+                new Argument("y", "The y position to write the text at.", true, ArgumentType.NUMBER),
+            ],
+            async (args: { text: string; x: number; y: number }) => {
+                const writing = await layoutHandwriting(args.text, { x: args.x, baseline: args.y });
+                const strokes = inkStrokes(writing);
+                engine.history.execute(new CreateObjects(engine.doc.activeLayer.id, strokes, 'Write'));
+                return new ToolResult("Text written at position " + args.x + ", " + args.y + ".");
+            },
+        ),
+    ];
 }
 
-export function deleteSelection(engine: CanvasEngine) {
-
+export function deleteTools(engine: CanvasEngine): Tool[] {
+    return [
+        new Tool(
+            "delete_selection",
+            "Deletes the selection.",
+            [],
+            async () => {
+                const ids = engine.selection.objects(engine.doc).map(o => o.id);
+                if (ids.length === 0) return new ToolResult("Nothing is selected.");
+                engine.history.execute(new DeleteObjects(ids));
+                return new ToolResult("Selection deleted. " + ids.length + " objects deleted.");
+            },
+        ),
+    ];
 }
 
-export function undo(engine: CanvasEngine) {
-
-}
-
-export function redo(engine: CanvasEngine) {
-
+export function historyTools(engine: CanvasEngine): Tool[] {
+    return [
+        new Tool(
+            "undo",
+            "Undoes the last action.",
+            [],
+            async () => engine.history.undo() ? new ToolResult("Undo successful.") : new ToolResult("No action to undo."),
+        ),
+        new Tool(
+            "redo",
+            "Redoes the last action.",
+            [],
+            async () => engine.history.redo() ? new ToolResult("Redo successful.") : new ToolResult("No action to redo."),
+        ),
+    ];
 }
