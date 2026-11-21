@@ -32,6 +32,8 @@ export interface ViewFrame {
   height: number;
   /** World distance between labeled grid lines. */
   gridStep: number;
+  /** World rect the user currently has on screen, when known. */
+  viewport?: Rect | null;
 }
 
 /** Bounds of every object on visible layers plus a 5% margin, or null when there are none. */
@@ -87,25 +89,63 @@ export function describeView(doc: CanvasDocument, frame: ViewFrame): string {
     `View x ${fmt(rect.minX)} to ${fmt(rect.maxX)}, y ${fmt(rect.minY)} to ${fmt(rect.maxY)} (canvas units).`,
     `Image ${width}x${height} px, 1 px = ${fmt(1 / scale, 2)} units. ` +
       `Blue lines every ${fmt(gridStep)} units${onPaper}, labeled with their canvas coordinate. y grows downward.`,
+    ...(frame.viewport ? [describeViewport(rect, frame.viewport)] : []),
     describeObjects(doc, rect),
   ].join('\n');
 }
 
-/** One line per object in `rect`: id, kind, details and world bounds. */
+/** Where the user's screen is relative to the view. */
+function describeViewport(view: Rect, screen: Rect): string {
+  const where = `x ${fmt(screen.minX)} to ${fmt(screen.maxX)}, y ${fmt(screen.minY)} to ${fmt(screen.maxY)}`;
+  const inside = screen.minX <= view.minX && screen.minY <= view.minY && screen.maxX >= view.maxX && screen.maxY >= view.maxY;
+  if (inside) return `The user's screen shows ${where}: all of this view is on it.`;
+  const apart = screen.maxX < view.minX || screen.minX > view.maxX || screen.maxY < view.minY || screen.minY > view.maxY;
+  if (apart) return `The user's screen shows ${where}: none of this view is on it.`;
+  return `The user's screen shows ${where}, outlined in orange.`;
+}
+
+/**
+ * One line per object in `rect`: id, kind, details and world bounds. The
+ * strokes of a group (an agent's answer, see Stroke.group) share one line
+ * with the bounds of the members in view, so an answer of a hundred pen
+ * strokes does not fill the list.
+ */
 function describeObjects(doc: CanvasDocument, rect: Rect): string {
   const objects = doc.queryRect(rect);
   if (objects.length === 0) return 'No objects in this view.';
-  const lines = objects.slice(0, MAX_LISTED).map((obj) => {
-    const b = obj.bounds;
-    const box = `bbox(${fmt(b.minX)}, ${fmt(b.minY)}, ${fmt(b.maxX)}, ${fmt(b.maxY)})`;
-    if (obj instanceof Stroke) return `${obj.id} stroke ${obj.style.brush} ${obj.style.color} ${box}`;
-    if (obj instanceof PageObject) return `${obj.id} page${obj.label ? ` "${obj.label}"` : ''} ${box}`;
-    return `${obj.id} ${obj.kind} ${box}`;
-  });
-  const more = objects.length - lines.length;
+  const box = (b: Rect) => `bbox(${fmt(b.minX)}, ${fmt(b.minY)}, ${fmt(b.maxX)}, ${fmt(b.maxY)})`;
+  const groups = new Map<string, { count: number; bounds: Rect; stroke: Stroke }>();
+  for (const obj of objects) {
+    if (!(obj instanceof Stroke) || obj.group === undefined) continue;
+    const g = groups.get(obj.group);
+    if (g) {
+      g.count++;
+      g.bounds = unionRect(g.bounds, obj.bounds);
+    } else {
+      groups.set(obj.group, { count: 1, bounds: obj.bounds, stroke: obj });
+    }
+  }
+  const lines: string[] = [];
+  const written = new Set<string>();
+  for (const obj of objects) {
+    if (obj instanceof Stroke && obj.group !== undefined) {
+      if (written.has(obj.group)) continue;
+      written.add(obj.group);
+      const g = groups.get(obj.group)!;
+      lines.push(`${obj.group} group of ${g.count} strokes ${g.stroke.style.brush} ${g.stroke.style.color} ${box(g.bounds)}`);
+    } else if (obj instanceof Stroke) {
+      lines.push(`${obj.id} stroke ${obj.style.brush} ${obj.style.color} ${box(obj.bounds)}`);
+    } else if (obj instanceof PageObject) {
+      lines.push(`${obj.id} page${obj.label ? ` "${obj.label}"` : ''} ${box(obj.bounds)}`);
+    } else {
+      lines.push(`${obj.id} ${obj.kind} ${box(obj.bounds)}`);
+    }
+  }
+  const shown = lines.slice(0, MAX_LISTED);
+  const more = lines.length - shown.length;
   return [
     'Objects in view (id, kind, bbox as minX, minY, maxX, maxY):',
-    ...lines,
+    ...shown,
     ...(more > 0 ? [`and ${more} more`] : []),
   ].join('\n');
 }

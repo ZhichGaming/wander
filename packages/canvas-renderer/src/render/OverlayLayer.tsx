@@ -8,7 +8,7 @@
  * that state and clears strokes once PenTool commits or cancels them.
  */
 
-import { DashPathEffect, Group, Path, Shader, Skia, type SkPath } from '@shopify/react-native-skia';
+import { DashPathEffect, Group, Paint, Path, Shader, Skia, type SkPath } from '@shopify/react-native-skia';
 import {
   DEFAULT_PEN_STYLE,
   getBrush,
@@ -25,7 +25,15 @@ import { useDerivedValue, useSharedValue, type SharedValue } from 'react-native-
 import { scheduleOnUI } from 'react-native-worklets';
 import { uiOwnedInkKeys } from '../input/useLiveInkInput';
 import { graphiteEffect, graphiteUniforms } from './graphite';
-import { clearInkStroke, inkOpacity, inkPath, upsertJsStroke, type InkState, type InkStroke } from './liveInk';
+import {
+  clearInkStroke,
+  inkFrozenPath,
+  inkOpacity,
+  inkPath,
+  upsertJsStroke,
+  type InkState,
+  type InkStroke,
+} from './liveInk';
 import { outlinesToSkPath } from './strokePath';
 
 /** Color of lasso, eraser and selection outlines. */
@@ -137,6 +145,8 @@ export function OverlayLayer({ engine, camera, dragOffset, ink }: OverlayLayerPr
           style: { ...live.style },
           points: live.points.map((p) => ({ ...p })),
           predicted: live.predicted.map((p) => ({ ...p })),
+          frozen: [],
+          frozenTo: 0,
         };
         scheduleOnUI((s: InkStroke) => {
           'worklet';
@@ -207,6 +217,8 @@ export function OverlayLayer({ engine, camera, dragOffset, ink }: OverlayLayerPr
   }, [engine, ink, lasso, eraser, selection]);
 
   const livePath = useDerivedValue(() => inkPath(ink.value));
+  // The finished part of long strokes: the same path object until another block freezes.
+  const frozenPath = useDerivedValue(() => inkFrozenPath(ink.value));
   const liveOpacity = useDerivedValue(() => inkOpacity(ink.value));
   const guideWidth = useDerivedValue(() => GUIDE_WIDTH_PX / camera.value.scale);
   // Both are stroked centred on the ink's edge and clipped to its outside, so half the width shows.
@@ -218,13 +230,29 @@ export function OverlayLayer({ engine, camera, dragOffset, ink }: OverlayLayerPr
     { translateY: dragOffset.value.y },
   ]);
 
+  const graphite = look.graphite && graphiteEffect() && (
+    <Shader source={graphiteEffect()!} uniforms={graphiteUniforms(look.color)} />
+  );
+
   return (
     <>
-      <Path path={livePath} color={look.color} opacity={liveOpacity} blendMode={look.multiply ? 'multiply' : 'srcOver'}>
-        {look.graphite && graphiteEffect() && (
-          <Shader source={graphiteEffect()!} uniforms={graphiteUniforms(look.color)} />
-        )}
-      </Path>
+      {look.multiply ? (
+        // Translucent brushes: the frozen part and the live tail overlap where they
+        // join, so both are drawn solid into one layer that is then blended once.
+        <Group layer={<Paint opacity={liveOpacity} blendMode="multiply" />}>
+          <Path path={frozenPath} color={look.color}>
+            {graphite}
+          </Path>
+          <Path path={livePath} color={look.color}>
+            {graphite}
+          </Path>
+        </Group>
+      ) : (
+        <>
+          <Path path={frozenPath} color={look.color} opacity={liveOpacity} />
+          <Path path={livePath} color={look.color} opacity={liveOpacity} />
+        </>
+      )}
       {/* Clipped to the outside of the ink, so selected strokes keep their own color. */}
       <Group transform={selectionTransform} clip={selection} invertClip>
         <Path

@@ -90,7 +90,7 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
   const scene = useSharedValue<SkPicture>(emptyPicture());
   const dragPreview = useSharedValue<SkPicture>(emptyPicture());
   const ink = useSharedValue<InkState>(emptyInk());
-  const inkConfig = useSharedValue<InkConfig>({ style: null, stylusRules: false });
+  const inkConfig = useSharedValue<InkConfig>({ style: null, stylusRules: false, corrections: false });
   const controller = useRef<SceneController | null>(null);
   // Plain copy of the layout size: on native, onLayout can fire before the
   // controller exists, and a shared value written on the JS thread does not
@@ -130,6 +130,8 @@ export function CanvasView({ engine, inputMode = 'auto', style }: CanvasViewProp
     size.value = { width, height };
     layoutSize.current = { width, height };
     controller.current?.setViewSize(width, height);
+    session.setViewSize(width, height);
+    engine.setViewSize(width, height);
   };
 
   // screen = (world - camera) * scale: translate by -camera * scale, then scale.

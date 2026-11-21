@@ -78,6 +78,16 @@ export class LassoTool implements Tool {
     return this.offset;
   }
 
+  /** True while a selection is being moved: dragging to the view edge pans the camera. */
+  get edgePan(): boolean {
+    return this.moveStart !== null;
+  }
+
+  /** A finger on the selection moves it, even when fingers otherwise navigate. */
+  wantsTouch(p: Vec2, ctx: ToolContext): boolean {
+    return ctx.selection.size > 0 && rectContainsPoint(ctx.selection.bounds(ctx.doc), p);
+  }
+
   /** Starts a move when the contact lands inside the selection, else a lasso. */
   onDown(e: PointerInput, ctx: ToolContext): void {
     this.pointerId = e.pointerId;
@@ -139,7 +149,8 @@ export class LassoTool implements Tool {
       if (!additive) ctx.selection.clear();
       return;
     }
-    const ids = objectsInLasso(ctx, polygon);
+    // Catching part of a group (an agent's answer) selects all of it.
+    const ids = ctx.doc.withGroups(objectsInLasso(ctx, polygon));
     if (additive) ctx.selection.add(ids);
     else ctx.selection.set(ids);
   }

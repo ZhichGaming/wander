@@ -184,6 +184,26 @@ export class CanvasDocument {
     return old;
   }
 
+  /**
+   * `ids` plus every other object in the same group as one of them (see
+   * Stroke.group), in document order after the given ids. Objects without a
+   * group add nothing.
+   */
+  withGroups(ids: readonly string[]): string[] {
+    const groups = new Set<string>();
+    for (const id of ids) {
+      const group = (this.getObject(id) as { group?: string } | undefined)?.group;
+      if (group !== undefined) groups.add(group);
+    }
+    if (groups.size === 0) return [...ids];
+    const out = new Set(ids);
+    for (const obj of this.allObjects()) {
+      const group = (obj as { group?: string }).group;
+      if (group !== undefined && groups.has(group)) out.add(obj.id);
+    }
+    return [...out];
+  }
+
   /** Every object, bottom layer first, in draw order. */
   *allObjects(): Generator<CanvasObject> {
     for (const layer of this.layerList) yield* layer.items;

@@ -45,7 +45,11 @@ export function useInkConfig(engine: CanvasEngine, session: PointerSession, conf
   const last = useRef('');
   /** Recomputes the config and publishes it when it changed. */
   const sync = useCallback(() => {
-    const next: InkConfig = { style: drawingStyle(engine), stylusRules: session.stylusRules };
+    const next: InkConfig = {
+      style: drawingStyle(engine),
+      stylusRules: session.stylusRules,
+      corrections: session.appliesCorrections,
+    };
     const key = JSON.stringify(next);
     if (key === last.current) return;
     last.current = key;
@@ -116,6 +120,13 @@ export function useLiveInkHandler(
   return useEvent<{ events: NativePointerEvent[] }>(
     (e) => {
       'worklet';
+      // Corrections that will be ignored need no work on either thread. A Pencil sends
+      // several times more of them than it sends moves.
+      if (!config.value.corrections) {
+        let onlyUpdates = true;
+        for (const ev of e.events) if (ev.phase !== 'update') onlyUpdates = false;
+        if (onlyUpdates) return;
+      }
       let started: number[] = [];
       ink.modify((state) => {
         'worklet';

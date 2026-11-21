@@ -36,7 +36,9 @@ Objects in view (id, kind, bbox as minX, minY, maxX, maxY):
 s_mwjici52254c8i stroke pen #1e1e1e bbox(125, 189, 387, 387)
 ```
 
-The object list holds at most 150 objects and counts the rest. Page objects show their label.
+The object list holds at most 150 lines and counts the rest. Page objects show their label. Strokes that share a group (an agent's answer) take one line, such as `g_abc group of 72 strokes pen #1e1e1e bbox(...)`, with the bounds of the members in view.
+
+Pass `opts.viewport` (usually `engine.viewport`, the world rect on screen, known once a `CanvasView` has laid out) to show the agent what the user is looking at: it is outlined in orange on the image and described in the text.
 
 A rect narrower than 128 world units in either direction (`VIEW_MIN_SPAN`, or `opts.minSpan`) is widened around its centre first, so a tiny area is not blown up into a blurry image. Corners can be given in either order.
 
@@ -58,6 +60,8 @@ A rect narrower than 128 world units in either direction (`VIEW_MIN_SPAN`, or `o
 | `strokes` | Stroke points in writing order, with pressure and time. |
 | `bounds` | Bounds of the stroke centre lines. The drawn ink is wider by the pen width. |
 | `end` | `{ x, baseline }`: where the pen stopped, to keep writing on the same line. |
+| `nextLine` | `{ x, baseline }`: where a line written straight after this would start. |
+| `below` | The y just under the last line: the `top` for whatever is written beneath it, plus a gap. |
 | `lines` | Lines written, counting wrapped lines, `\n` and display math. |
 | `missing` | Characters and LaTeX commands it could not write, each listed once. They are left as a gap. |
 | `duration` | Milliseconds from `startTime` to the last point. |
@@ -67,9 +71,11 @@ The options:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `x` | required | Left edge of the first letter. |
-| `baseline` | required | The line the first line's letters sit on. y grows downward. |
+| `baseline` | this or `top` | The line the first line's letters sit on. y grows downward. |
+| `top` | this or `baseline` | Top edge of the first line: the ink starts at about this y however tall the first line is. Use it to place a block by its top-left corner. |
 | `style` | `NEAT_HAND` | A `Partial<HandStyle>`; missing fields come from `NEAT_HAND`. |
-| `maxWidth` | no wrapping | Words and inline math that would pass `x + maxWidth` go to the next line. Display math is centred in this width. |
+| `maxWidth` | no wrapping | Words and inline math that would pass `x + maxWidth` go to the next line. |
+| `displayAlign` | `'center'` | Where display math sits: centred in `maxWidth`, or `'left'` at the block's left edge, as people write working by hand. |
 | `lineHeight` | 2.7 x-heights | Smallest distance between baselines. Lines holding tall math get more. |
 | `seed` | from the text and position | The same text, options and seed always give the same strokes. |
 | `startTime` | 0 | Time of the first point. |
@@ -98,14 +104,38 @@ Inside the text, `$...$` is inline math and `$$...$$` is display math on its own
 | Big operators | `\int`, `\iint`, `\oint`, `\sum`, `\prod`, `\lim`, each with `_` and `^` limits |
 | Functions | `\sin`, `\cos`, `\tan`, `\sec`, `\csc`, `\cot`, `\arcsin`, `\arccos`, `\arctan`, `\sinh`, `\cosh`, `\tanh`, `\ln`, `\log`, `\exp`, `\max`, `\min`, `\det`, `\deg`, `\operatorname{...}` |
 | Greek | `\alpha` to `\omega` (not `\iota`, `\zeta`, `\xi`, `\upsilon`, `\omicron`) and `\Gamma`, `\Delta`, `\Theta`, `\Lambda`, `\Pi`, `\Sigma`, `\Phi`, `\Psi`, `\Omega` |
-| Symbols | `\infty`, `\partial`, `\nabla`, `\pm`, `\times`, `\div`, `\cdot`, `\leq`, `\geq`, `\neq`, `\approx`, `\equiv`, `\propto`, `\to`, `\leftarrow`, `\Rightarrow`, `\hbar`, `\degree`, `\circ`, `\prime`, `\ldots`, `\cdots` |
+| Symbols | `\infty`, `\partial`, `\nabla`, `\pm`, `\times`, `\div`, `\cdot`, `\leq`, `\geq`, `\neq`, `\approx`, `\equiv`, `\propto`, `\to`, `\leftarrow`, `\Rightarrow`, `\rightleftharpoons`, `\leftrightarrow`, `\hbar`, `\degree`, `\circ`, `\prime`, `\ldots`, `\cdots` |
 | Brackets | `( ) [ ] \{ \} |` as written, and `\left( ... \right)` (also `[`, `\{`, `|`, `.`) stretched to their contents |
 | Accents | `\vec`, `\hat`, `\bar`, `\overline`, `\dot`, `\ddot` |
 | Text and space | `\text{...}`, `\mathrm{...}`, `\,`, `\:`, `\;`, `\ `, `\!`, `\quad`, `\qquad` |
+| Rows | `\\` ends a row and `&` marks where rows line up, with or without `\begin{aligned}` (also `align`, `gathered`, `split`) |
 
-`\mathbf` and `\mathit` write their argument plainly. `-` in math is written as a minus sign. `MATH_COMMANDS` lists every command name. Anything else (matrices, `\begin{align}`, `\overbrace` and so on) is reported in `missing` and left as a gap, so check `missing` when the text comes from a model.
+`\mathbf` and `\mathit` write their argument plainly. `-` in math is written as a minus sign. `MATH_COMMANDS` lists every command name. Anything else (matrices, `\overbrace` and so on) is reported in `missing` and left as a gap, so check `missing` when the text comes from a model.
 
 Layout follows how people write math by hand rather than TeX's exact rules: fraction bars sit at the height of the minus sign, scripts are about two thirds size, integral limits sit at the top and bottom right of the sign, and sum, product and lim limits go above and below.
+
+### Working that lines up
+
+Inside math, `\\` ends a row and `&` marks the point every row lines up on. Cells alternate right-aligned and left-aligned, so `a &= b` puts each row's `=` in one column; a row with no `&` starts at the left edge. Rows are spaced by their contents, so fractions get the room they need. A row may end with `\note{a few words}`, an extension to LaTeX: the words are written as plain text just after that row, a little smaller.
+
+```ts
+layoutHandwriting('$$ x^2 - 4 &= 0 \\\\ x^2 &= 4 \\\\ x &= \\pm 2 $$', {
+  x: 128,
+  top: 400,
+  maxWidth: 480,
+  displayAlign: 'left',
+});
+```
+
+### Putting ink on the canvas: writeInk
+
+`writeInk(engine, ink, opts?)` adds any `Ink` to the document and makes it appear as writing. It returns `{ strokes, group, done, finish }`.
+
+- All strokes are added at once in one `CreateObjects`, so the answer is one undo step and the document is complete from the start: saving, undo and the agent's next view all see the whole answer.
+- Only the drawing is staged. Every stroke starts in `engine.overlay.state.concealed`, which the renderer leaves out, and is revealed when the pen would have finished it, in writing order: the times in the ink divided by `speed` (default 6; 0 shows everything at once), and squeezed further if needed so the whole reveal takes at most `maxDuration` (default 1500 ms). A long answer sweeps in instead of taking as long as it would to write. `done` resolves when all of it is visible, and `finish()` shows the rest immediately.
+- The strokes share a `group` id (`Stroke.group`). The lasso selects the whole group when it catches part of it, and the object eraser removes it whole, so an answer moves and erases as one. The partial eraser still cuts single strokes. The group survives moves, splits and save and load.
+
+Options: `style`, `layerId`, `group`, `label` (undo label, default "Write"), `speed` and `maxDuration`. `inkStrokes(ink, style, group?)` remains for adding strokes yourself.
 
 ### Drawing: layoutSketch
 
@@ -167,13 +197,13 @@ const graph = layoutGraph({
 Layouts decide where things go; one pen draws everything, so text, math, shapes and graphs look like the same hand:
 
 - Each character is one or more single-line pen strokes, in the order a person writes them. Control points are joined with smooth curves, and sharp turns stay sharp, so bowls are round and the points of A, N and triangles stay pointed.
-- Every letter gets its own size, width, lean, rotation and baseline offset, and its curves wobble a little, so no two copies of a letter are the same. In text, the baseline also drifts in slow waves and each line tilts slightly.
+- Every letter gets its own size, width, lean, rotation and baseline offset, and its curves wobble a little, so no two copies of a letter are the same. Each word also has its own size and sits a little above or below the line. In text, the baseline also drifts in slow waves and each line tilts slightly.
 - Lines and curves bow and waver a little along their length; circles overshoot where they close.
 - i dots and t and f bars come after the rest of the word, as most people write them.
 - Pressure builds at the start of a stroke and tapers at the end. Dots and other short marks are pressed evenly so they stay visible.
 - Time runs slower on tight curves than on straight runs, with a pause between strokes.
 
-Because the points carry pressure that is not the flat 0.5 of a finger, the pen brush draws them like Apple Pencil input, and speed from the timestamps thins fast lines. The timestamps also let the app replay the strokes as an animation of the answer being written; nothing in the library does that playback. To draw several results one after another, pass each the previous one's `startTime + duration` as its `startTime`.
+Because the points carry pressure that is not the flat 0.5 of a finger, the pen brush draws them like Apple Pencil input, and speed from the timestamps thins fast lines. The timestamps also drive the reveal in `writeInk`, which shows the answer in writing order. To draw several results one after another, pass each the previous one's `startTime + duration` as its `startTime`.
 
 ### Styles
 
@@ -182,6 +212,7 @@ Because the points carry pressure that is not the flat 0.5 of a finger, the pen 
 | Preset | x-height | Slant | Messiness | Use |
 | --- | --- | --- | --- | --- |
 | `NEAT_HAND` | 14 | 6 | 0.45 | Default. Tidy print that reads well on the 32-unit grid. |
+| `CASUAL_HAND` | 14 | 9 | 0.8 | Everyday handwriting: uneven size and spacing, still easy to read. A good default for an agent writing beside someone's notes. |
 | `LOOSE_HAND` | 14 | 12 | 0.9 | Quick writing: more lean and more variation. |
 | `UPRIGHT_HAND` | 17 | 0 | 0.35 | Larger, upright and slower. |
 
@@ -208,5 +239,5 @@ The x-height decides how much room a line needs: ascenders reach about 1.75 x-he
 
 - It is one print hand for everyone. Size, slant, spacing and pressure can follow the user; the letter shapes cannot yet.
 - Letters are not joined, so it does not write cursive.
-- No matrices, aligned multi-line equations or chemical structures yet.
+- No matrices or chemical structures yet.
 - Graphs take points, not formulas.

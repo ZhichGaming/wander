@@ -20,6 +20,7 @@ const LABEL_PAD_PX = 3;
 const GRID_COLOR = 'rgba(0, 122, 255, 0.35)';
 const LABEL_COLOR = '#0057b8';
 const LABEL_BACK = 'rgba(255, 255, 255, 0.85)';
+const VIEWPORT_COLOR = 'rgba(240, 120, 0, 0.9)';
 
 /** Options of renderAgentView. */
 export interface AgentViewOptions {
@@ -27,6 +28,11 @@ export interface AgentViewOptions {
   maxSize?: number;
   /** Smallest width and height of the view in world units (default VIEW_MIN_SPAN). */
   minSpan?: number;
+  /**
+   * World rect the user has on screen (engine.viewport). It is outlined in
+   * orange on the image and described in the text.
+   */
+  viewport?: Rect | null;
 }
 
 /** A view of the canvas for an agent: the image, how it maps to the world, and its text. */
@@ -49,7 +55,10 @@ export async function renderAgentView(
   const gridStep = gridStepFor(view, doc.background.spacing);
   const rendered = await renderRegion(doc, view, {
     maxSize: opts.maxSize ?? VIEW_SIZE,
-    decorate: (canvas, r, scale) => drawCoordinateGrid(canvas, r, scale, gridStep),
+    decorate: (canvas, r, scale) => {
+      drawCoordinateGrid(canvas, r, scale, gridStep);
+      if (opts.viewport) drawViewport(canvas, opts.viewport, scale);
+    },
   });
   const frame: ViewFrame = {
     rect: rendered.rect,
@@ -57,8 +66,21 @@ export async function renderAgentView(
     width: rendered.width,
     height: rendered.height,
     gridStep,
+    viewport: opts.viewport,
   };
   return { ...frame, image: rendered.image, text: describeView(doc, frame) };
+}
+
+/** Outlines the user's screen: an orange rectangle two pixels wide. */
+function drawViewport(canvas: SkCanvas, screen: Rect, scale: number): void {
+  const paint = Skia.Paint();
+  paint.setStyle(PaintStyle.Stroke);
+  paint.setStrokeWidth(2 / scale);
+  paint.setColor(Skia.Color(VIEWPORT_COLOR));
+  canvas.drawRect(
+    Skia.XYWHRect(screen.minX, screen.minY, screen.maxX - screen.minX, screen.maxY - screen.minY),
+    paint,
+  );
 }
 
 /**

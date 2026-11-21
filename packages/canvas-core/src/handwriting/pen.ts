@@ -148,6 +148,8 @@ export class Pen {
   /**
    * Gives a stroke pressure and time. The pen slows on tight curves.
    * Long strokes press in and taper out; short marks are pressed evenly.
+   * The taper out is gentle: the pen brush reads a collapse in pressure at
+   * the end of a stroke as the pen lifting and leaves that part out.
    */
   private timed(pts: readonly GlyphPoint[]): StrokePoint[] {
     const { gauss, style } = this;
@@ -166,7 +168,7 @@ export class Pen {
         this.clock += step / (style.speed * (1 - 0.55 * Math.min(1, turn / 1.2)));
       }
       const u = n > 1 ? i / (n - 1) : 0;
-      const envelope = short ? 1.15 : Math.min(1, u / 0.18 + 0.45) * Math.min(1, (1 - u) / 0.25 + 0.35);
+      const envelope = short ? 1.15 : Math.min(1, u / 0.18 + 0.45) * Math.min(1, (1 - u) / 0.25 + 0.75);
       const pressure = Math.max(0.05, Math.min(1, style.pressure * envelope + gauss() * 0.03));
       out.push({ x, y, pressure, time: this.clock });
     }

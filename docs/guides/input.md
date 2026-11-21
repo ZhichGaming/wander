@@ -25,6 +25,8 @@ Each contact gets one role for its lifetime: `draw`, `navigate`, `modifier` or `
 - A pen always draws, in every mode. If a finger was drawing (no pen seen yet), the pen cancels that gesture and takes over; navigating fingers become modifiers, so the camera never moves under a stroke in progress.
 - A mouse draws. The gesture only reports the left button.
 - Under stylus rules a finger navigates: one finger pans, the first two pan and pinch-zoom. A finger that lands while the pen draws is a modifier.
+- A tool can claim a finger under stylus rules through `wantsTouch(p, ctx)`. `LassoTool` does for a finger that lands on the selection, so a selection can be moved by hand; a second finger landing early still turns it into a pan or pinch. A lone finger tap that navigated nowhere (at most `TAP_SLOP_PX`, 10 px, within `TAP_MAX_MS`, 350 ms) clears the selection.
+- While the tool reports `edgePan` (the lasso moving a selection) and the drawing contact is within `EDGE_PAN_ZONE_PX` (56 px) of the view's edge, the session pans the camera towards that edge, up to `EDGE_PAN_SPEED` (900 px per second) at the edge itself, and re-sends the contact's position so the dragged objects keep up. This needs `session.setViewSize`, which `CanvasView` calls on layout.
 - Without stylus rules the first finger draws. A second finger that lands within `SECOND_FINGER_WINDOW_MS` (120 ms), or before the first moved more than `SECOND_FINGER_SLOP_PX` (6 px), cancels the draw and both fingers navigate. Otherwise it is a modifier and the draw continues.
 - Extra pens or mice while something else draws are ignored.
 
@@ -48,6 +50,7 @@ Each native event can carry what UIKit reports for Apple Pencil:
 
 - `pressure` (0..1) and `tiltX`/`tiltY` (radians) are copied onto the `PointerInput`.
 - `coalesced` high-rate samples are fed to the engine one by one instead of the event's own position; `predicted` look-ahead samples go with the last of them, shown but never committed.
+- By default the session ignores corrections (`corrections: 'ignore'`): ink keeps the values the pen first reported and a lift commits at once. On a real Pencil the corrections only change pressure and arrive a few hundred milliseconds late, mostly after the stroke has lifted, so applying them reshapes ink the writer has already finished. Pass `{ corrections: 'apply' }` to `PointerSession` for the behaviour in the next two points; `session.appliesCorrections` reports which is in use.
 - `updateIndex` marks a sample UIKit still expects to correct. The later `'update'` event with the same index becomes `engine.pointerUpdate` with corrected position, pressure and tilt; `final: true` clears it.
 - If a drawing contact lifts with corrections outstanding, its `pointerUp` is deferred until the last final update arrives or `ESTIMATE_TIMEOUT_MS` (150 ms) passes. A new drawing contact, `cancelAll` or `flushRequested` commits the deferred lift first. If that commit throws, the session cancels the gesture and clears its state.
 - `session.penSample` emits every pen sample, including updates, for live pressure and tilt readouts.

@@ -28,13 +28,18 @@ export interface OverlayState {
   liveStroke: LiveStroke | null;
   lasso: Vec2[] | null;
   eraser: EraserCursor | null;
+  /**
+   * Ids of objects that are in the document but not drawn yet: ink an
+   * agent is still "writing" (see writeInk). The renderer leaves them out.
+   */
+  concealed: readonly string[];
 }
 
 /** Mutable overlay with change notification. Tools write, the renderer reads. */
 export class Overlay {
   /** Fires after any change with the full state. */
   readonly changed = new Emitter<OverlayState>();
-  private s: OverlayState = { liveStroke: null, lasso: null, eraser: null };
+  private s: OverlayState = { liveStroke: null, lasso: null, eraser: null, concealed: [] };
 
   /** Current state. Arrays are live; copy them before keeping. */
   get state(): Readonly<OverlayState> {
@@ -59,9 +64,15 @@ export class Overlay {
     this.changed.emit(this.s);
   }
 
-  /** Clears everything. */
+  /** Replaces the concealed ids. Pass a new array; it is compared by identity. */
+  setConcealed(ids: readonly string[]): void {
+    this.s = { ...this.s, concealed: ids };
+    this.changed.emit(this.s);
+  }
+
+  /** Clears the tool feedback (live stroke, lasso, eraser cursor); concealed ids stay. */
   clear(): void {
-    this.s = { liveStroke: null, lasso: null, eraser: null };
+    this.s = { liveStroke: null, lasso: null, eraser: null, concealed: this.s.concealed };
     this.changed.emit(this.s);
   }
 }

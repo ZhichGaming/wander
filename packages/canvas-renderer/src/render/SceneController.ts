@@ -60,6 +60,8 @@ export class SceneController {
   private viewH = 0;
   private cull: Rect | null = null;
   private hidden: Set<string> | null = null;
+  /** Overlay.concealed as last seen: ink that is in the document but not drawn yet. */
+  private concealed: readonly string[] = [];
   private dragPreview: SkPicture | null = null;
   private frame: number | null = null;
   private unsubscribers: (() => void)[] = [];
@@ -81,10 +83,16 @@ export class SceneController {
     this.cache = new SceneCache(this.doc, this.painter);
     this.watchDocument();
     this.watchTool(engine.tool);
+    this.concealed = engine.overlay.state.concealed;
     this.unsubscribers.push(
       engine.documentReplaced.on(() => this.replaceDocument()),
       engine.camera.changed.on(() => this.onCameraChanged()),
       engine.toolChanged.on((tool) => this.watchTool(tool)),
+      engine.overlay.changed.on((state) => {
+        if (state.concealed === this.concealed) return;
+        this.concealed = state.concealed;
+        this.schedule();
+      }),
       images.loaded.on(() => {
         this.cache.invalidatePass(PAGE_PASS);
         this.schedule();
@@ -206,7 +214,12 @@ export class SceneController {
       const pad = Math.max(visible.maxX - visible.minX, visible.maxY - visible.minY) * CULL_MARGIN;
       this.cull = inflateRect(visible, pad);
     }
-    const scene = this.cache.buildScene(this.cull, this.hidden);
+    let hidden = this.hidden;
+    if (this.concealed.length > 0) {
+      hidden = new Set(this.concealed);
+      if (this.hidden) for (const id of this.hidden) hidden.add(id);
+    }
+    const scene = this.cache.buildScene(this.cull, hidden);
     this.onPictures({ scene, dragPreview: this.dragPreview });
   }
 }

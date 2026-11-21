@@ -8,6 +8,7 @@
 
 import type { Camera } from '../Camera';
 import type { History } from '../commands/History';
+import type { Vec2 } from '../math/geometry';
 import type { CanvasDocument } from '../model/CanvasDocument';
 import type { Overlay } from './Overlay';
 import type { Selection } from './Selection';
@@ -71,6 +72,17 @@ export interface Tool {
    * clears the selection, so nothing stays selected that the tool can't act on.
    */
   readonly usesSelection?: boolean;
+  /**
+   * When a stylus is in use, fingers navigate. Return true for a finger
+   * landing at world point `p` that should act on this tool instead (the
+   * lasso does, for a finger on the selection, so it can be moved by hand).
+   */
+  wantsTouch?(p: Vec2, ctx: ToolContext): boolean;
+  /**
+   * True while the drag in progress should pan the camera when it nears the
+   * edge of the view (the lasso sets it while moving a selection).
+   */
+  readonly edgePan?: boolean;
   /** A contact went down. */
   onDown(e: PointerInput, ctx: ToolContext): void;
   /**

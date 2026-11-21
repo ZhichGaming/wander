@@ -6,7 +6,10 @@
  * superscripts and subscripts, roots, integrals, sums and products with
  * limits, lim, named functions (sin, ln...), Greek letters, operators and
  * relations, arrows, accents (vec, hat, bar, dot), stretchy brackets with
- * \left and \right, \text and spacing. Anything else is reported missing.
+ * \left and \right, \text and spacing, and rows aligned with `&` and
+ * `\\` (with or without \begin{aligned}). A row may end with
+ * `\note{a few words}`, an extension that writes plain text beside it.
+ * Anything else is reported missing.
  *
  * Layout follows how people write math by hand rather than TeX's exact
  * rules: fractions are centred on the height of the minus sign, scripts are
@@ -62,7 +65,8 @@ const SYMBOLS: Record<string, string> = {
   Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
   infty: '∞', partial: '∂', nabla: '∇', pm: '±', times: '×', div: '÷', cdot: '⋅',
   leq: '≤', le: '≤', geq: '≥', ge: '≥', neq: '≠', ne: '≠', approx: '≈', equiv: '≡', propto: '∝',
-  to: '→', rightarrow: '→', leftarrow: '←', gets: '←', Rightarrow: '⇒', implies: '⇒',
+  to: '→', rightarrow: '→', longrightarrow: '→', leftarrow: '←', gets: '←', Rightarrow: '⇒', implies: '⇒',
+  rightleftharpoons: '⇌', leftrightharpoons: '⇌', rightleftarrows: '⇌', leftrightarrow: '↔',
   hbar: 'ħ', degree: '°', circ: '°', prime: "'", lt: '<', gt: '>', mid: '|', vert: '|',
   '{': '{', '}': '}', '%': '%',
 };
@@ -77,7 +81,7 @@ const FUNCTIONS = new Set([
 const SPACES: Record<string, number> = { ',': 0.17, ':': 0.22, ';': 0.28, ' ': 0.3, quad: 1, qquad: 2, '!': -0.1 };
 
 /** Characters that relate two sides; they get wide spacing. */
-const RELATIONS = new Set(['=', '<', '>', '≤', '≥', '≠', '≈', '≡', '∝', '→', '←', '⇒', ':']);
+const RELATIONS = new Set(['=', '<', '>', '≤', '≥', '≠', '≈', '≡', '∝', '→', '←', '⇒', '⇌', '↔', ':']);
 /** Binary operators; they get medium spacing when they have something on the left. */
 const BINARY = new Set(['+', '−', '±', '×', '÷', '⋅', '*']);
 
@@ -305,9 +309,136 @@ class Parser {
 
 // ---- layout ----------------------------------------------------------------
 
-/** Lays LaTeX math `src` out as one box at size `scale` (1 is body text). */
+/**
+ * Lays LaTeX math `src` out as one box at size `scale` (1 is body text).
+ * Several rows (`\\`) are stacked, with `&` marking where they line up.
+ */
 export function layoutMath(src: string, scale: number, ctx: MathContext): Box {
+  const rows = splitRows(src);
+  // A row may end with \note{a few words}: plain text written beside that row.
+  const notes = rows.map((cells) => {
+    const last = cells.length - 1;
+    const m = ROW_NOTE.exec(cells[last]);
+    if (!m) return '';
+    cells[last] = cells[last].slice(0, m.index);
+    return m[1].trim();
+  });
+  const plain = rows.length === 1 && rows[0].length === 1 && notes[0] === '';
+  if (plain) return layoutCell(rows[0][0], scale, ctx);
+  return alignedRows(rows, notes, scale, ctx);
+}
+
+/** One run of math without rows or alignment marks. */
+function layoutCell(src: string, scale: number, ctx: MathContext): Box {
   return layoutNode(new Parser(tokenize(src)).all(), scale, ctx);
+}
+
+/** Environments whose only job is to hold aligned or stacked rows. */
+const ROW_ENVIRONMENT = /\\(begin|end)\s*\{(aligned|align|alignat|gathered|gather|split|equation)\*?\}/g;
+const BACKSLASH = String.fromCharCode(92);
+/** Gap between words of upright text in math, in x-heights. */
+const TEXT_WORD_GAP = 0.62;
+/** A note beside a row: its size relative to the row, and the gap before it in x-heights. */
+const NOTE_SCALE = 0.9;
+const NOTE_GAP = 1.6;
+/** `\\note{...}` at the end of a row. */
+const ROW_NOTE = /\\note\s*\{([^}]*)\}\s*$/;
+/** Row gap, and the gaps at an alignment mark and between column pairs, in x-heights. */
+const ROW_GAP = 1.1;
+const ALIGN_GAP = 0.5;
+const COLUMN_GAP = 1.5;
+
+/**
+ * `src` as rows of cells: rows end at `\\`, cells at `&`, both only outside
+ * braces. A trailing empty row is dropped.
+ */
+function splitRows(src: string): string[][] {
+  const body = src.replace(ROW_ENVIRONMENT, ' ');
+  const rows: string[][] = [[]];
+  let cell = '';
+  let depth = 0;
+  const endCell = () => {
+    rows[rows.length - 1].push(cell);
+    cell = '';
+  };
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    const next = body[i + 1];
+    if (c === '\\' && next === '\\' && depth === 0) {
+      endCell();
+      rows.push([]);
+      i++;
+      // An optional spacing argument, as in \\[4pt]. Only a length counts:
+      // a row may well begin with a bracket of its own, such as [H^+].
+      const rest = /^\s*\[\s*-?[\d.]+\s*(pt|em|ex|mm|cm|in)\s*\]/.exec(body.slice(i + 1));
+      if (rest) i += rest[0].length;
+    } else if (c === '\\' && next !== undefined) {
+      cell += c + next;
+      i++;
+    } else if (c === '&' && depth === 0) {
+      endCell();
+    } else {
+      if (c === '{') depth++;
+      else if (c === '}') depth = Math.max(0, depth - 1);
+      cell += c;
+    }
+  }
+  endCell();
+  const last = rows[rows.length - 1];
+  if (rows.length > 1 && last.every((x) => x.trim() === '')) rows.pop();
+  return rows;
+}
+
+/**
+ * Rows stacked downward from the first row's baseline. Cells alternate
+ * right-aligned and left-aligned, so `a &= b` lines every row up on its
+ * `=`; a row without `&` starts at the left edge.
+ */
+function alignedRows(rows: string[][], notes: string[], scale: number, ctx: MathContext): Box {
+  const s = Math.max(MIN_SCALE, scale);
+  const boxes = rows.map((cells) => cells.map((cell) => layoutCell(cell, s, ctx)));
+  const columns = Math.max(...boxes.map((r) => r.length));
+  const widths: number[] = [];
+  for (let c = 0; c < columns; c++) {
+    widths.push(Math.max(0, ...boxes.filter((r) => r.length > 1 || columns === 1).map((r) => r[c]?.w ?? 0)));
+  }
+  const starts: number[] = [];
+  let x = 0;
+  for (let c = 0; c < columns; c++) {
+    if (c > 0) x += c % 2 === 1 ? ALIGN_GAP * s : COLUMN_GAP * s;
+    starts.push(x);
+    x += widths[c];
+  }
+  const parts: Box[] = [];
+  let baseline = 0;
+  let down = 0;
+  let width = x;
+  boxes.forEach((row, r) => {
+    const rowUp = Math.max(0, ...row.map((b) => b.up));
+    const rowDown = Math.max(0, ...row.map((b) => b.down));
+    if (r > 0) baseline -= (Math.max(down, 0.5) + Math.max(rowUp, 1.2) + ROW_GAP) * s;
+    down = rowDown / s;
+    let rowEnd = 0;
+    row.forEach((box, c) => {
+      // A row with a single cell is not part of the alignment: it starts at the left.
+      const aligned = row.length > 1 || columns === 1;
+      const left = !aligned ? 0 : c % 2 === 0 ? starts[c] + widths[c] - box.w : starts[c];
+      parts.push(shiftBox(box, left, baseline));
+      if (box.w > 0) rowEnd = Math.max(rowEnd, left + box.w);
+    });
+    // The row's note sits just after the row itself, not in a column of its own.
+    if (notes[r]) {
+      const note = noteBox(notes[r], Math.max(MIN_SCALE, s * NOTE_SCALE), ctx);
+      const left = rowEnd + NOTE_GAP * s;
+      parts.push(shiftBox(note, left, baseline));
+      rowEnd = left + note.w;
+    }
+    width = Math.max(width, rowEnd);
+    parts.push({ w: 0, up: 0, down: 0, marks: [{ kind: 'flush' }] });
+  });
+  const first = boxes[0];
+  const box = stackBox(width, parts);
+  return { ...box, up: Math.max(0, ...first.map((b) => b.up)) };
 }
 
 /** Spacing class of a laid-out item, for the gaps between items. */
@@ -333,13 +464,13 @@ function classOf(n: MathNode): SpaceClass {
 function gapBetween(prev: SpaceClass | null, cur: SpaceClass, scale: number): number {
   if (prev === null) return 0;
   const k = scale;
-  if (cur === 'rel' || prev === 'rel') return 0.45 * k;
+  if (cur === 'rel' || prev === 'rel') return 0.62 * k;
   // A binary operator after nothing useful (a leading minus) is written tight.
-  if (cur === 'bin') return prev === 'ord' || prev === 'close' ? 0.32 * k : 0.04 * k;
-  if (prev === 'bin') return 0.32 * k;
-  if (prev === 'punct') return 0.35 * k;
-  if (prev === 'op' || cur === 'op') return 0.18 * k;
-  return 0.1 * k;
+  if (cur === 'bin') return prev === 'ord' || prev === 'close' ? 0.44 * k : 0.06 * k;
+  if (prev === 'bin') return 0.44 * k;
+  if (prev === 'punct') return 0.45 * k;
+  if (prev === 'op' || cur === 'op') return 0.26 * k;
+  return 0.17 * k;
 }
 
 function layoutNode(n: MathNode, scale: number, ctx: MathContext): Box {
@@ -393,6 +524,22 @@ function charBox(c: string, s: number, ctx: MathContext): Box {
   return spaceBox(0.6 * s);
 }
 
+/**
+ * A note: plain words, except that a word with a subscript, superscript
+ * or command in it (K_b, x^2) is laid out as math.
+ */
+function noteBox(str: string, s: number, ctx: MathContext): Box {
+  const boxes: Box[] = [];
+  const gaps: number[] = [];
+  for (const word of str.split(' ')) {
+    if (word === '') continue;
+    gaps.push(boxes.length === 0 ? 0 : TEXT_WORD_GAP * s);
+    const isMath = word.includes('_') || word.includes('^') || word.includes(BACKSLASH);
+    boxes.push(isMath ? layoutCell(word, s, ctx) : textBox(word, s, ctx));
+  }
+  return rowBox(boxes, gaps);
+}
+
 /** Upright text (\text, function names): letters with a small gap, spaces as word gaps. */
 function textBox(str: string, s: number, ctx: MathContext): Box {
   const boxes: Box[] = [];
@@ -403,9 +550,21 @@ function textBox(str: string, s: number, ctx: MathContext): Box {
       afterSpace = true;
       continue;
     }
-    gaps.push(boxes.length === 0 ? 0 : afterSpace ? 0.42 * s : 0.1 * s);
+    // A space before the first letter separates the text from math before it.
+    if (boxes.length === 0 && afterSpace) {
+      boxes.push(spaceBox(TEXT_WORD_GAP * s));
+      gaps.push(0);
+      gaps.push(0);
+    } else {
+      gaps.push(boxes.length === 0 ? 0 : afterSpace ? TEXT_WORD_GAP * s : 0.14 * s);
+    }
     boxes.push(charBox(c, s, ctx));
     afterSpace = false;
+  }
+  // And a space after the last letter separates it from math after it.
+  if (afterSpace && boxes.length > 0) {
+    gaps.push(0);
+    boxes.push(spaceBox(TEXT_WORD_GAP * s));
   }
   return rowBox(boxes, gaps);
 }
@@ -415,11 +574,11 @@ function fraction(numNode: MathNode, denNode: MathNode, s: number, ctx: MathCont
   const k = Math.max(MIN_SCALE, s * 0.82);
   const num = layoutNode(numNode, k, ctx);
   const den = layoutNode(denNode, k, ctx);
-  const pad = 0.14 * s;
+  const pad = 0.22 * s;
   const w = Math.max(num.w, den.w) + 2 * pad;
   const axis = AXIS * s;
-  const numBase = axis + 0.24 * s + num.down;
-  const denBase = axis - 0.26 * s - den.up;
+  const numBase = axis + 0.3 * s + num.down;
+  const denBase = axis - 0.32 * s - den.up;
   const bar = pathBox(w, [[0.06 * s, axis], [w - 0.06 * s, axis]]);
   return stackBox(w, [
     shiftBox(num, (w - num.w) / 2, numBase),
