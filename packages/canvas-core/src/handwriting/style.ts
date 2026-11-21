@@ -19,7 +19,11 @@ export interface HandStyle {
   letterGap: number;
   /** Space between words, in x-heights. */
   wordGap: number;
-  /** Typical pen pressure, 0 to 1. */
+  /**
+   * Typical pen pressure, 0 to 1, on the scale a stylus reports. The pen
+   * brush multiplies stylus pressure before drawing (see PenBrush), so about
+   * 0.28 draws at the pen's nominal width.
+   */
   pressure: number;
   /** Pen speed on straight runs, in world units per millisecond. */
   speed: number;
@@ -33,8 +37,24 @@ export const NEAT_HAND: Readonly<HandStyle> = Object.freeze({
   width: 1.18,
   letterGap: 0.2,
   wordGap: 0.42,
-  pressure: 0.4,
+  pressure: 0.28,
   speed: 0.16,
+});
+
+/**
+ * Everyday handwriting: clearly a person's, with uneven size and spacing
+ * and a wandering baseline, but still easy to read. A good default for an
+ * agent writing next to someone's own notes.
+ */
+export const CASUAL_HAND: Readonly<HandStyle> = Object.freeze({
+  xHeight: 14,
+  slant: 9,
+  messiness: 0.8,
+  width: 1.2,
+  letterGap: 0.2,
+  wordGap: 0.46,
+  pressure: 0.27,
+  speed: 0.2,
 });
 
 /** Faster, more slanted and more varied. */
@@ -45,7 +65,7 @@ export const LOOSE_HAND: Readonly<HandStyle> = Object.freeze({
   width: 1.25,
   letterGap: 0.18,
   wordGap: 0.42,
-  pressure: 0.38,
+  pressure: 0.26,
   speed: 0.24,
 });
 
@@ -57,6 +77,6 @@ export const UPRIGHT_HAND: Readonly<HandStyle> = Object.freeze({
   width: 1.12,
   letterGap: 0.22,
   wordGap: 0.42,
-  pressure: 0.42,
+  pressure: 0.29,
   speed: 0.14,
 });

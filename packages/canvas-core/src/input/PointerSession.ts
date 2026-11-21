@@ -34,8 +34,24 @@
  *   and trackpad scrolling go through `wheel`.
  * - A pen always draws, in every mode; in "auto" its first touch switches
  *   the session to stylus rules for good.
+ * - Under stylus rules a finger still acts on the tool when the tool asks
+ *   for it (`wantsTouch`): a finger on the lasso's selection moves it. A
+ *   second finger landing early turns that into a pan or pinch as usual.
+ * - A lone finger tap that navigated nowhere clears the selection.
+ *
+ * Edge pan
+ * - While the tool reports `edgePan` (the lasso moving a selection) and
+ *   the drawing contact is within EDGE_PAN_ZONE_PX of the view's edge, the
+ *   camera pans towards that edge on a timer and the contact's position is
+ *   re-sent, so the dragged objects keep up. Needs `setViewSize`.
  *
  * Estimated values (Apple Pencil)
+ * - By default corrections are ignored (`corrections: 'ignore'`): ink is
+ *   drawn with the values the pen reported at the time, and a lift commits
+ *   at once. On a real Pencil the corrections only change pressure, arrive
+ *   a few hundred milliseconds late (after most handwriting strokes have
+ *   already lifted), and applying them visibly reshapes ink the user has
+ *   finished. The rest of this section describes `corrections: 'apply'`.
  * - Samples may carry `updateIndex`: the device will correct their
  *   pressure, tilt or position later with an "update" event of the same
  *   index, which goes to the engine as pointerUpdate.
@@ -99,6 +115,13 @@ export type SetTimer = (fn: () => void, ms: number) => () => void;
 export interface PointerSessionOptions {
   /** Timer used for deferred lifts; defaults to globalThis.setTimeout. */
   setTimer?: SetTimer;
+  /**
+   * What to do with a pen's later corrections to samples it first reported
+   * as estimates. `'ignore'` (the default) keeps ink exactly as drawn and
+   * commits on lift. `'apply'` revises live samples and holds a lift until
+   * its corrections arrive or ESTIMATE_TIMEOUT_MS passes.
+   */
+  corrections?: 'ignore' | 'apply';
 }
 
 /** A mouse wheel or trackpad scroll in screen space. */
@@ -121,6 +144,16 @@ export const SECOND_FINGER_SLOP_PX = 6;
 export const WHEEL_ZOOM_SPEED = 0.01;
 /** Longest a lift waits for outstanding estimate corrections (ms). */
 export const ESTIMATE_TIMEOUT_MS = 150;
+/** A navigating finger that moved no further than this (screen px) and lifted within TAP_MAX_MS is a tap. */
+export const TAP_SLOP_PX = 10;
+/** Longest contact that still counts as a tap (ms). */
+export const TAP_MAX_MS = 350;
+/** Width of the band along the view's edges that pans the camera during a drag (screen px). */
+export const EDGE_PAN_ZONE_PX = 56;
+/** Pan speed at the very edge (screen px per second); it falls to 0 at the inner side of the band. */
+export const EDGE_PAN_SPEED = 900;
+/** Time between edge-pan steps (ms). */
+const EDGE_PAN_TICK_MS = 16;
 
 /** setTimeout and clearTimeout as typed globals (core has no DOM or Node types). */
 const timerGlobals = globalThis as unknown as {
@@ -147,6 +180,10 @@ interface Contact {
   downX: number;
   downY: number;
   downTime: number;
+  /** Furthest it has been from where it landed (screen px). */
+  moved: number;
+  /** False once another contact was down at the same time. */
+  alone: boolean;
 }
 
 /** Pan and pinch baseline: centroid and spread of the navigating fingers. */
@@ -179,15 +216,23 @@ export class PointerSession {
   private readonly contacts = new Map<number, Contact>();
   private nav: NavBaseline | null = null;
   private readonly setTimer: SetTimer;
+  /** True when the pen's later corrections revise ink (see PointerSessionOptions.corrections). */
+  readonly appliesCorrections: boolean;
   /** updateIndex values still awaiting a final correction, per drawing contact. */
   private readonly outstanding = new Map<number, Set<number>>();
   private deferred: DeferredUp | null = null;
+  private viewSize = { width: 0, height: 0 };
+  /** Stops the running edge-pan timer; null when none runs. */
+  private stopEdgePan: (() => void) | null = null;
+  /** Time of the drawing contact's last sample, advanced by edge-pan steps. */
+  private drawTime = 0;
 
   /** Creates a session that drives `engine` under input `mode`. */
   constructor(engine: CanvasEngine, mode: InputMode, options: PointerSessionOptions = {}) {
     this.engine = engine;
     this.mode = mode;
     this.setTimer = options.setTimer ?? defaultSetTimer;
+    this.appliesCorrections = options.corrections === 'apply';
     // Undo, redo, tool switches and loads must not drop a lifted stroke
     // that is still waiting for Pencil corrections: commit it first.
     engine.flushRequested.on(() => this.flushDeferredUp());
@@ -196,6 +241,11 @@ export class PointerSession {
   /** Changes the input mode; contacts already down keep their role. */
   setMode(mode: InputMode): void {
     this.mode = mode;
+  }
+
+  /** Tells the session how large the view is (screen px), which edge pan needs. */
+  setViewSize(width: number, height: number): void {
+    this.viewSize = { width, height };
   }
 
   /** True when pens draw and fingers navigate. */
@@ -248,12 +298,16 @@ export class PointerSession {
       downX: e.x,
       downY: e.y,
       downTime: e.time,
+      moved: 0,
+      alone: this.contacts.size === 0,
     };
+    for (const other of this.contacts.values()) other.alone = false;
     contact.role = this.roleForNewContact(contact);
     this.contacts.set(e.pointerId, contact);
     if (contact.role === 'draw') {
       this.flushDeferredUp();
       this.noteEstimate(e, e.pointerId);
+      this.drawTime = e.time;
       this.engine.pointerDown(this.toWorld(e, e.pointerId));
     }
     if (contact.role === 'navigate') this.resetNav();
@@ -274,7 +328,7 @@ export class PointerSession {
       return 'draw';
     }
     if (drawer) {
-      if (this.stylusRules || drawer.kind !== 'touch') return 'modifier';
+      if (drawer.kind !== 'touch') return 'modifier';
       if (this.isSecondFingerForNavigation(drawer, c)) {
         this.engine.cancelGesture();
         drawer.role = 'navigate';
@@ -282,9 +336,13 @@ export class PointerSession {
       }
       return 'modifier';
     }
-    if (this.stylusRules) return 'navigate';
-    // No stylus: a finger draws unless others are already navigating.
-    return this.hasRole('navigate') ? 'navigate' : 'draw';
+    if (this.hasRole('navigate')) return 'navigate';
+    // With a stylus a finger navigates, unless the tool wants it (a finger on the selection).
+    if (this.stylusRules) {
+      return this.engine.toolWantsTouch(this.engine.camera.screenToWorld(c)) ? 'draw' : 'navigate';
+    }
+    // No stylus: a finger draws.
+    return 'draw';
   }
 
   /** True when a second finger means "pan or pinch" rather than "modifier". */
@@ -306,8 +364,12 @@ export class PointerSession {
     if (!c) return;
     c.x = e.x;
     c.y = e.y;
-    if (c.role === 'draw') this.feedMoves(e);
-    else if (c.role === 'navigate') this.navigate();
+    c.moved = Math.max(c.moved, Math.hypot(e.x - c.downX, e.y - c.downY));
+    if (c.role === 'draw') {
+      this.feedMoves(e);
+      this.drawTime = e.time;
+      this.checkEdgePan();
+    } else if (c.role === 'navigate') this.navigate();
   }
 
   /** Sends coalesced samples one by one, predicted samples with the last. */
@@ -327,11 +389,14 @@ export class PointerSession {
     if (!c) return;
     try {
       if (c.role === 'draw') {
+        this.endEdgePan();
         if (e.coalesced && e.coalesced.length > 0) this.feedMoves({ ...e, predicted: undefined });
         this.noteEstimate(e, e.pointerId);
         const input = this.toWorld(e, e.pointerId);
         if (this.outstanding.has(e.pointerId)) this.deferUp(e.pointerId, input);
         else this.engine.pointerUp(input);
+      } else if (c.role === 'navigate' && this.isTap(c, e)) {
+        this.engine.selection.clear();
       }
     } finally {
       // Always drop the contact, even if commit throws: a leftover 'draw'
@@ -369,7 +434,7 @@ export class PointerSession {
 
   /** Remembers that sample `s` of a drawing contact awaits corrections. */
   private noteEstimate(s: RawPointerSample, pointerId: number): void {
-    if (s.updateIndex === undefined) return;
+    if (!this.appliesCorrections || s.updateIndex === undefined) return;
     let set = this.outstanding.get(pointerId);
     if (!set) this.outstanding.set(pointerId, (set = new Set()));
     set.add(s.updateIndex);
@@ -377,6 +442,7 @@ export class PointerSession {
 
   /** Applies corrected values for a drawing (or deferred) contact's sample. */
   private onUpdate(e: RawPointerEvent): void {
+    if (!this.appliesCorrections) return;
     const index = e.updateIndex;
     const set = this.outstanding.get(e.pointerId);
     if (index === undefined || !set || !set.has(index)) return;
@@ -402,10 +468,81 @@ export class PointerSession {
     this.contacts.delete(pointerId);
     this.outstanding.delete(pointerId);
     try {
-      if (c.role === 'draw') this.engine.cancelGesture();
+      if (c.role === 'draw') {
+        this.endEdgePan();
+        this.engine.cancelGesture();
+      }
     } finally {
       if (c.role === 'navigate') this.resetNav();
     }
+  }
+
+  /** True when a navigating finger lifted as a lone, short tap that went nowhere. */
+  private isTap(c: Contact, up: RawPointerEvent): boolean {
+    return c.kind === 'touch' && c.alone && c.moved <= TAP_SLOP_PX && up.time - c.downTime <= TAP_MAX_MS;
+  }
+
+  /**
+   * Screen velocity (px per second) the camera should pan at for a drag at
+   * (x, y): towards each edge the point is near, faster the closer it is.
+   */
+  private edgePanVelocity(x: number, y: number): Vec2 {
+    const { width, height } = this.viewSize;
+    /** -1..1: how deep `v` is in the band at 0 (negative) or at `size` (positive). */
+    const depth = (v: number, size: number) => {
+      if (v < EDGE_PAN_ZONE_PX) return -Math.min(1, (EDGE_PAN_ZONE_PX - v) / EDGE_PAN_ZONE_PX);
+      if (v > size - EDGE_PAN_ZONE_PX) return Math.min(1, (v - (size - EDGE_PAN_ZONE_PX)) / EDGE_PAN_ZONE_PX);
+      return 0;
+    };
+    return { x: depth(x, width) * EDGE_PAN_SPEED, y: depth(y, height) * EDGE_PAN_SPEED };
+  }
+
+  /** Starts the edge-pan timer when the drawing contact enters the band during an edge-pan drag. */
+  private checkEdgePan(): void {
+    if (this.stopEdgePan || this.viewSize.width <= 0 || !this.engine.tool.edgePan) return;
+    const c = this.drawingContact();
+    if (!c) return;
+    const v = this.edgePanVelocity(c.x, c.y);
+    if (v.x !== 0 || v.y !== 0) this.scheduleEdgePan();
+  }
+
+  /** Queues the next edge-pan step. */
+  private scheduleEdgePan(): void {
+    this.stopEdgePan = this.setTimer(() => {
+      this.stopEdgePan = null;
+      this.stepEdgePan();
+    }, EDGE_PAN_TICK_MS);
+  }
+
+  /**
+   * One edge-pan step: moves the camera towards the edge, then re-sends the
+   * contact's position, which is now over a different world point, so the
+   * tool moves what it drags by the same amount.
+   */
+  private stepEdgePan(): void {
+    const id = this.drawingId();
+    const c = id === null ? undefined : this.contacts.get(id);
+    if (id === null || !c || !this.engine.tool.edgePan) return;
+    const v = this.edgePanVelocity(c.x, c.y);
+    if (v.x === 0 && v.y === 0) return;
+    const dt = EDGE_PAN_TICK_MS / 1000;
+    // panBy moves the content with the finger; to reveal what lies past an edge it moves the other way.
+    this.engine.camera.panBy(-v.x * dt, -v.y * dt);
+    this.drawTime += EDGE_PAN_TICK_MS;
+    this.engine.pointerMove(this.toWorld({ x: c.x, y: c.y, time: this.drawTime }, id));
+    this.scheduleEdgePan();
+  }
+
+  /** Stops edge panning. */
+  private endEdgePan(): void {
+    this.stopEdgePan?.();
+    this.stopEdgePan = null;
+  }
+
+  /** Pointer id of the contact currently drawing, if any. */
+  private drawingId(): number | null {
+    for (const [id, c] of this.contacts) if (c.role === 'draw') return id;
+    return null;
   }
 
   /** Pans by the centroid delta and zooms by the spread ratio around it. */

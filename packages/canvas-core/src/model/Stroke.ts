@@ -44,6 +44,8 @@ export interface StrokeJSON extends ObjectJSON {
   baked?: BakedInk;
   /** With `baked`: each point's `edges`, -1 where it has none. */
   edges?: number[];
+  /** Id of the group the stroke belongs to, if any. */
+  group?: string;
 }
 
 /** Immutable freehand stroke. */
@@ -53,16 +55,30 @@ export class Stroke extends CanvasObject {
   readonly style: Readonly<StrokeStyle>;
   /** Set when the points are a baked centre line (see the file comment). */
   readonly baked?: Readonly<BakedInk>;
+  /**
+   * Id shared by strokes that belong together, such as everything an agent
+   * wrote in one answer. The lasso selects a whole group when it catches
+   * part of it, and the object eraser removes it whole. Kept through moves,
+   * baking, splits and save/load.
+   */
+  readonly group?: string;
   private cachedBounds?: Rect;
   private cachedOutline?: Vec2[];
   private cachedOpacity?: number;
 
   /** Creates a stroke; pass no id to get a fresh one. */
-  constructor(points: readonly StrokePoint[], style: StrokeStyle, id: string = newId('s'), baked?: BakedInk) {
+  constructor(
+    points: readonly StrokePoint[],
+    style: StrokeStyle,
+    id: string = newId('s'),
+    baked?: BakedInk,
+    group?: string,
+  ) {
     super(id);
     this.points = points;
     this.style = { ...style };
     if (baked) this.baked = { ...baked };
+    if (group !== undefined) this.group = group;
   }
 
   /**
@@ -113,7 +129,7 @@ export class Stroke extends CanvasObject {
     const points = this.points.map((pt) => ({ ...pt, ...applyMatrix(m, pt) }));
     const scale = matrixScale(m);
     const baked = this.baked && { ...this.baked, size: this.baked.size * scale };
-    return new Stroke(points, { ...this.style, width: this.style.width * scale }, this.id, baked);
+    return new Stroke(points, { ...this.style, width: this.style.width * scale }, this.id, baked, this.group);
   }
 
   /**
@@ -129,7 +145,13 @@ export class Stroke extends CanvasObject {
     const { size, smoothing, capStart, capEnd } = call.options;
     const points = freehandCentre(call.input, call.options).map((p) => ({ ...p, time: 0 }));
     const opacity = brush.opacity(this.points, this.style);
-    return new Stroke(points, this.style, this.id, { size, smoothing, capStart, capEnd, trimEnd: true, opacity });
+    return new Stroke(
+      points,
+      this.style,
+      this.id,
+      { size, smoothing, capStart, capEnd, trimEnd: true, opacity },
+      this.group,
+    );
   }
 
   /**
@@ -139,7 +161,7 @@ export class Stroke extends CanvasObject {
    */
   withPoints(points: readonly StrokePoint[], keepsEnd = true): Stroke {
     const baked = this.baked && { ...this.baked, trimEnd: this.baked.trimEnd && keepsEnd };
-    return new Stroke(points, this.style, undefined, baked);
+    return new Stroke(points, this.style, undefined, baked, this.group);
   }
 
   /** Packed JSON record. */
@@ -152,6 +174,7 @@ export class Stroke extends CanvasObject {
     }
     const json: StrokeJSON = { kind: 'stroke', id: this.id, style: { ...this.style }, points };
     if (hasTilt) json.tilt = this.points.flatMap((p) => [p.tiltX ?? 0, p.tiltY ?? 0]);
+    if (this.group !== undefined) json.group = this.group;
     if (this.baked) {
       json.baked = { ...this.baked };
       json.edges = this.points.map((p) => p.edges ?? -1);
@@ -176,6 +199,6 @@ export class Stroke extends CanvasObject {
       if (json.edges && json.edges[k / 2] >= 0) p.edges = json.edges[k / 2];
       pts.push(p);
     }
-    return new Stroke(pts, json.style, json.id, json.baked);
+    return new Stroke(pts, json.style, json.id, json.baked, json.group);
   }
 }

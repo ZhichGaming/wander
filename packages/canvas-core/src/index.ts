@@ -41,7 +41,7 @@ export { PenBrush } from './brush/PenBrush';
 export { HighlighterBrush } from './brush/HighlighterBrush';
 export { PencilBrush, shadeAmount } from './brush/PencilBrush';
 export { outlineToSvgPath, dotOutline, isSinglePoint } from './brush/outlinePath';
-export { brushOutline, brushOpacity } from './brush/liveOutline';
+export { brushOutline, brushOutlineFrom, brushOpacity } from './brush/liveOutline';
 export { freehandOutline, type FreehandInput, type FreehandOptions } from './brush/freehand';
 
 export { EraserTool, DEFAULT_ERASER_OPTIONS, type EraserMode, type EraserOptions } from './tools/EraserTool';
@@ -65,6 +65,7 @@ export {
   type HandwritingOptions,
 } from './handwriting/handwriting';
 export { MATH_COMMANDS } from './handwriting/math';
+export { writeInk, type WriteInkOptions, type InkWriting } from './handwriting/playback';
 export {
   layoutSketch,
   layoutGraph,

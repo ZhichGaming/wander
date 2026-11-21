@@ -57,7 +57,7 @@ function update(updateIndex: number, x: number, pressure: number, final = true, 
 function setup(): { engine: CanvasEngine; session: PointerSession; timer: FakeTimer } {
   const engine = new CanvasEngine();
   const timer = new FakeTimer();
-  const session = new PointerSession(engine, 'pencilOnly', { setTimer: timer.setTimer });
+  const session = new PointerSession(engine, 'pencilOnly', { setTimer: timer.setTimer, corrections: 'apply' });
   return { engine, session, timer };
 }
 

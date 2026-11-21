@@ -51,6 +51,27 @@ export function dotOutline(center: Vec2, radius: number): Vec2[] {
   return outline;
 }
 
+/**
+ * True when the whole stroke fits inside a square `size` on a side: a tap
+ * or a dot, too small to have a direction. The freehand outline is built
+ * for lines and gives such strokes malformed, self-overlapping shapes, so
+ * brushes draw them as a dot instead. Worklet.
+ */
+export function isDot(points: readonly Vec2[], size: number): boolean {
+  'worklet';
+  let minX = points[0].x;
+  let maxX = points[0].x;
+  let minY = points[0].y;
+  let maxY = points[0].y;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return maxX - minX < size && maxY - minY < size;
+}
+
 /** True when every point sits on the first one, as in a tap. */
 export function isSinglePoint(points: readonly Vec2[]): boolean {
   'worklet';

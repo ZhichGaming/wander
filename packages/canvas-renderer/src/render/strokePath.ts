@@ -43,3 +43,16 @@ export function outlinesToSkPath(outlines: readonly (readonly Vec2[])[]): SkPath
   for (const o of outlines) addOutline(builder, o);
   return builder.detach();
 }
+
+/**
+ * `base` (or nothing) plus one closed contour per outline, as a new path.
+ * Lets a growing set of outlines be built up without redoing the old ones.
+ * Worklet.
+ */
+export function appendOutlines(base: SkPath | null, outlines: readonly (readonly Vec2[])[]): SkPath {
+  'worklet';
+  const builder = Skia.PathBuilder.Make();
+  if (base) builder.addPath(base);
+  for (const o of outlines) addOutline(builder, o);
+  return builder.detach();
+}

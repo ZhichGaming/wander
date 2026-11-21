@@ -134,7 +134,8 @@ export class EraserTool implements Tool {
       }
       return false;
     });
-    if (hit.length) ctx.history.execute(new DeleteObjects(hit.map((s) => s.id), 'Erase'));
+    // Touching part of a group (an agent's answer) removes all of it.
+    if (hit.length) ctx.history.execute(new DeleteObjects(ctx.doc.withGroups(hit.map((s) => s.id)), 'Erase'));
   }
 
   /**

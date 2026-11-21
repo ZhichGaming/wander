@@ -8,6 +8,7 @@
 import { Camera } from '../Camera';
 import { History } from '../commands/History';
 import { Emitter } from '../Emitter';
+import type { Rect, Vec2 } from '../math/geometry';
 import { CanvasDocument } from '../model/CanvasDocument';
 import { deserializeDocument, serializeDocument, type DocumentJSON } from '../serialize/Serializer';
 import { Overlay } from '../tools/Overlay';
@@ -30,6 +31,7 @@ export class CanvasEngine {
   readonly camera = new Camera();
   readonly selection = new Selection();
   readonly overlay = new Overlay();
+  private viewSize = { width: 0, height: 0 };
   private _doc: CanvasDocument;
   private _history: History;
   private _tool: Tool;
@@ -78,6 +80,22 @@ export class CanvasEngine {
     if (!tool.usesSelection) this.selection.clear();
     this._tool = tool;
     this.toolChanged.emit(tool);
+  }
+
+  /** Records the size of the view showing this engine, in screen pixels (the view calls this on layout). */
+  setViewSize(width: number, height: number): void {
+    this.viewSize = { width, height };
+  }
+
+  /** World rect currently on screen, or null when no view has reported its size. */
+  get viewport(): Rect | null {
+    const { width, height } = this.viewSize;
+    return width > 0 && height > 0 ? this.camera.visibleRect(width, height) : null;
+  }
+
+  /** True when the active tool wants a finger at world point `p` even while fingers navigate. */
+  toolWantsTouch(p: Vec2): boolean {
+    return this._tool.wantsTouch?.(p, this.ctx) ?? false;
   }
 
   /** Forwards a pointer-down to the active tool. */

@@ -6,7 +6,15 @@
 
 import { describe, expect, it } from 'vitest';
 import { PointerSession, type RawPointerEvent } from '../src/input/PointerSession';
-import { CanvasEngine, Stroke, type PointerInput, type Tool } from '../src';
+import {
+  CanvasEngine,
+  CreateObjects,
+  DEFAULT_PEN_STYLE,
+  LassoTool,
+  Stroke,
+  type PointerInput,
+  type Tool,
+} from '../src';
 
 /** Builds a raw screen-space event. */
 function ev(
@@ -238,5 +246,132 @@ describe('PointerSession survives a failed commit', () => {
     session.handle(ev('up', 2, 'touch', 50, 100, 300));
     expect(strokeCount(engine)).toBe(1);
     expect(engine.doc.activeLayer.items[0]).toBeInstanceOf(Stroke);
+  });
+});
+
+describe('PointerSession fingers and the selection', () => {
+  /** Engine with a lasso tool, one stroke from (100, 100) to (200, 100) selected, and stylus rules on. */
+  function setup() {
+    const engine = new CanvasEngine();
+    const pts = [0, 25, 50, 75, 100].map((dx, i) => ({ x: 100 + dx, y: 100, pressure: 0.5, time: i * 10 }));
+    const stroke = new Stroke(pts, DEFAULT_PEN_STYLE);
+    engine.history.execute(new CreateObjects(engine.doc.activeLayer.id, [stroke]));
+    engine.setTool(new LassoTool());
+    engine.selection.set([stroke.id]);
+    const pending: (() => void)[] = [];
+    const s = new PointerSession(engine, 'pencilOnly', {
+      setTimer: (fn) => {
+        pending.push(fn);
+        return () => {
+          const i = pending.indexOf(fn);
+          if (i >= 0) pending.splice(i, 1);
+        };
+      },
+    });
+    /** Fires the oldest pending timer; false when there is none. */
+    const tick = () => {
+      const fn = pending.shift();
+      fn?.();
+      return fn !== undefined;
+    };
+    const minX = () => engine.doc.getObject(stroke.id)!.bounds.minX;
+    return { engine, s, stroke, tick, pending, minX };
+  }
+
+  it('moves the selection with a finger that lands on it', () => {
+    const { engine, s, minX } = setup();
+    const before = minX();
+    s.handle(ev('down', 1, 'touch', 150, 100, 0));
+    drag(s, 1, 'touch', 150, 100, 0, 5);
+    s.handle(ev('up', 1, 'touch', 200, 100, 100));
+    expect(minX() - before).toBeCloseTo(50, 6);
+    expect(engine.camera.get()).toEqual({ x: 0, y: 0, scale: 1 });
+    expect(engine.selection.size).toBe(1);
+  });
+
+  it('pans with a finger that lands off the selection, keeping it selected', () => {
+    const { engine, s, minX } = setup();
+    const before = minX();
+    s.handle(ev('down', 1, 'touch', 400, 400, 0));
+    drag(s, 1, 'touch', 400, 400, 0, 5);
+    s.handle(ev('up', 1, 'touch', 450, 400, 100));
+    expect(minX()).toBe(before);
+    expect(engine.camera.get().x).toBeCloseTo(-50, 6);
+    expect(engine.selection.size).toBe(1);
+  });
+
+  it('clears the selection on a finger tap off it, but not on a tap on it', () => {
+    const { engine, s } = setup();
+    s.handle(ev('down', 1, 'touch', 150, 100, 0));
+    s.handle(ev('up', 1, 'touch', 150, 100, 80));
+    expect(engine.selection.size).toBe(1);
+    s.handle(ev('down', 2, 'touch', 400, 400, 200));
+    s.handle(ev('move', 2, 'touch', 403, 402, 220));
+    s.handle(ev('up', 2, 'touch', 403, 402, 280));
+    expect(engine.selection.size).toBe(0);
+  });
+
+  it('does not treat a long press or one finger of a pinch as a tap', () => {
+    const { engine, s } = setup();
+    s.handle(ev('down', 1, 'touch', 400, 400, 0));
+    s.handle(ev('up', 1, 'touch', 400, 400, 900));
+    expect(engine.selection.size).toBe(1);
+    s.handle(ev('down', 2, 'touch', 400, 400, 1000));
+    s.handle(ev('down', 3, 'touch', 500, 400, 1010));
+    s.handle(ev('up', 2, 'touch', 400, 400, 1050));
+    s.handle(ev('up', 3, 'touch', 500, 400, 1060));
+    expect(engine.selection.size).toBe(1);
+  });
+
+  it('turns a finger move into a pinch when a second finger lands right away', () => {
+    const { engine, s, minX } = setup();
+    const before = minX();
+    s.handle(ev('down', 1, 'touch', 150, 100, 0));
+    s.handle(ev('down', 2, 'touch', 250, 100, 30));
+    s.handle(ev('move', 1, 'touch', 130, 100, 60));
+    s.handle(ev('move', 2, 'touch', 270, 100, 60));
+    s.handle(ev('up', 1, 'touch', 130, 100, 80));
+    s.handle(ev('up', 2, 'touch', 270, 100, 80));
+    expect(minX()).toBe(before);
+    expect(engine.camera.get().scale).toBeGreaterThan(1);
+  });
+
+  it('pans the camera while a selection is dragged at the view edge, and the selection keeps up', () => {
+    const { engine, s, tick, pending, minX } = setup();
+    s.setViewSize(800, 600);
+    const before = minX();
+    s.handle(ev('down', 1, 'touch', 150, 100, 0));
+    // Drag to 10 px from the right edge, then hold still.
+    s.handle(ev('move', 1, 'touch', 790, 100, 100));
+    const draggedTo = () => (engine.tool as LassoTool).dragOffset!.x;
+    const atEdge = draggedTo();
+    expect(atEdge).toBeCloseTo(640, 6);
+    expect(pending).toHaveLength(1);
+    for (let i = 0; i < 10; i++) expect(tick()).toBe(true);
+    // The camera moved right, and the drag offset grew by the same world distance.
+    const cam = engine.camera.get().x;
+    expect(cam).toBeGreaterThan(50);
+    expect(draggedTo() - atEdge).toBeCloseTo(cam, 6);
+    // Back inside the view: panning stops.
+    s.handle(ev('move', 1, 'touch', 400, 100, 400));
+    tick();
+    expect(pending).toHaveLength(0);
+    expect(engine.camera.get().x).toBeCloseTo(cam, 6);
+    s.handle(ev('up', 1, 'touch', 400, 100, 420));
+    expect(minX() - before).toBeCloseTo(250 + cam, 6);
+  });
+
+  it('does not edge pan without a view size or while drawing a lasso', () => {
+    const { engine, s, pending } = setup();
+    s.handle(ev('down', 1, 'touch', 150, 100, 0));
+    s.handle(ev('move', 1, 'touch', 790, 100, 100));
+    expect(pending).toHaveLength(0);
+    s.handle(ev('up', 1, 'touch', 790, 100, 120));
+    s.setViewSize(800, 600);
+    // A pen lasso that starts off the selection and runs to the edge.
+    s.handle(ev('down', 2, 'pen', 300, 400, 200));
+    s.handle(ev('move', 2, 'pen', 795, 400, 260));
+    expect(pending).toHaveLength(0);
+    expect(engine.camera.get().x).toBe(0);
   });
 });
