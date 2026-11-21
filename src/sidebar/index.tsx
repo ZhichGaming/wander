@@ -10,12 +10,15 @@ import { StyleSheet } from 'react-native';
 import {Text, TextInput, View, Pressable} from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
+import Harness from '../harness';
+import { Role, Message } from '../harness/agent';
 
-export default function Sidebar() {
+export default function Sidebar(harness: {harness: Harness}) {
     return (
         <View style={styles.SidebarStyle}>
             <ChatOutput />
-            <BarUi />
+            <BarUi harness={harness.harness}/>
         </View>
     );
 };
@@ -28,20 +31,29 @@ function ChatOutput() {
     )
 }
 
-function BarUi() {
+function BarUi(harness: {harness: Harness}) {
+    const [text, setText] = useState("")
+
     return (
         <View style={styles.InbarStyle}>
             <Pressable onPress={() => console.log()}>
                 <Feather name="plus" size={24} color="black" />
             </Pressable>
 
-            <TextInput style={styles.TextboxStyle} placeholder='Ask anything...'>
+            <TextInput value={text} onChangeText={setText} style={styles.TextboxStyle} placeholder='Ask anything...'>
                 
             </TextInput>
 
-            <Pressable onPress={() => console.log()}>
-                <Ionicons name="send" size={24} color="black" />
+            <Pressable onPress={async () => {
+                harness.harness.agent.addMessage(new Message(Role.USER, text)); 
+                setText("");
+                
+                const response = await harness.harness.agent.run();
+                }}>
+                    
+                <Ionicons name="send" size={20} color="black" /> 
             </Pressable>
+
         </View>
     );
 }
