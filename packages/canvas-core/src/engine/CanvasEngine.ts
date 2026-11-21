@@ -68,10 +68,14 @@ export class CanvasEngine {
     };
   }
 
-  /** Switches tools, cancelling any gesture in progress. */
+  /**
+   * Switches tools, cancelling any gesture in progress. The selection is
+   * cleared unless the new tool works on it (`usesSelection`).
+   */
   setTool(tool: Tool): void {
     this.flushRequested.emit();
     this.cancelGesture();
+    if (!tool.usesSelection) this.selection.clear();
     this._tool = tool;
     this.toolChanged.emit(tool);
   }

@@ -2,18 +2,18 @@
  * Wander — Zhich, Yu, Justin
  * Draws transient tool feedback on top of the ink, in world space inside
  * the camera transform: the live ink, the lasso polygon, the eraser cursor
- * and the selection bounds. The live ink's path is derived on the UI thread
+ * and the selection outline (a contour around every selected stroke). The live ink's path is derived on the UI thread
  * from the shared live-ink state (see liveInk.ts), which native input
  * extends directly; this component mirrors JavaScript-driven strokes into
  * that state and clears strokes once PenTool commits or cancels them.
  */
 
-import { DashPathEffect, Path, Shader, Skia, type SkPath } from '@shopify/react-native-skia';
+import { DashPathEffect, Group, Path, Shader, Skia, type SkPath } from '@shopify/react-native-skia';
 import {
   DEFAULT_PEN_STYLE,
   getBrush,
-  isEmptyRect,
   PenTool,
+  Stroke,
   type CameraState,
   type CanvasEngine,
   type OverlayState,
@@ -26,6 +26,7 @@ import { scheduleOnUI } from 'react-native-worklets';
 import { uiOwnedInkKeys } from '../input/useLiveInkInput';
 import { graphiteEffect, graphiteUniforms } from './graphite';
 import { clearInkStroke, inkOpacity, inkPath, upsertJsStroke, type InkState, type InkStroke } from './liveInk';
+import { outlinesToSkPath } from './strokePath';
 
 /** Color of lasso, eraser and selection outlines. */
 const GUIDE_COLOR = '#2f6fed';
@@ -33,6 +34,12 @@ const GUIDE_COLOR = '#2f6fed';
 const GUIDE_WIDTH_PX = 1.5;
 /** Dash and gap length of guide outlines in screen pixels. */
 const DASH_PX = 6;
+/** Width of the line drawn around selected ink, in screen pixels. */
+const SELECTION_RING_PX = 1.5;
+/** Width of the soft glow outside that line, in screen pixels. */
+const SELECTION_GLOW_PX = 5;
+/** Opacity of the glow. */
+const SELECTION_GLOW_OPACITY = 0.25;
 
 /** Props of OverlayLayer. */
 export interface OverlayLayerProps {
@@ -159,14 +166,27 @@ export function OverlayLayer({ engine, camera, dragOffset, ink }: OverlayLayerPr
       lasso.value = lassoPath(state);
       eraser.value = eraserPath(state);
     };
-    /** Rebuilds the selection rectangle from the selected objects' bounds. */
+    /**
+     * Rebuilds the selection outline: the ink outline of every selected
+     * stroke, and the bounds rectangle of any other object (pages).
+     */
     const onSelection = () => {
-      const b = engine.selection.bounds(engine.doc);
-      selection.value = isEmptyRect(b)
-        ? emptyPath()
-        : Skia.PathBuilder.Make()
-            .addRect(Skia.XYWHRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY))
-            .detach();
+      const objects = engine.selection.objects(engine.doc);
+      if (objects.length === 0) {
+        selection.value = emptyPath();
+        return;
+      }
+      const outlines = [];
+      const builder = Skia.PathBuilder.Make();
+      for (const obj of objects) {
+        if (obj instanceof Stroke) outlines.push(obj.outline);
+        else {
+          const b = obj.bounds;
+          builder.addRect(Skia.XYWHRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY));
+        }
+      }
+      builder.addPath(outlinesToSkPath(outlines));
+      selection.value = builder.detach();
     };
     let offDoc = engine.doc.changed.on(onSelection);
     const offs = [
@@ -189,6 +209,9 @@ export function OverlayLayer({ engine, camera, dragOffset, ink }: OverlayLayerPr
   const livePath = useDerivedValue(() => inkPath(ink.value));
   const liveOpacity = useDerivedValue(() => inkOpacity(ink.value));
   const guideWidth = useDerivedValue(() => GUIDE_WIDTH_PX / camera.value.scale);
+  // Both are stroked centred on the ink's edge and clipped to its outside, so half the width shows.
+  const ringWidth = useDerivedValue(() => (2 * SELECTION_RING_PX) / camera.value.scale);
+  const glowWidth = useDerivedValue(() => (2 * SELECTION_GLOW_PX) / camera.value.scale);
   const dashes = useDerivedValue(() => [DASH_PX / camera.value.scale, DASH_PX / camera.value.scale]);
   const selectionTransform = useDerivedValue(() => [
     { translateX: dragOffset.value.x },
@@ -202,9 +225,18 @@ export function OverlayLayer({ engine, camera, dragOffset, ink }: OverlayLayerPr
           <Shader source={graphiteEffect()!} uniforms={graphiteUniforms(look.color)} />
         )}
       </Path>
-      <Path path={selection} transform={selectionTransform} style="stroke" strokeWidth={guideWidth} color={GUIDE_COLOR}>
-        <DashPathEffect intervals={dashes} />
-      </Path>
+      {/* Clipped to the outside of the ink, so selected strokes keep their own color. */}
+      <Group transform={selectionTransform} clip={selection} invertClip>
+        <Path
+          path={selection}
+          style="stroke"
+          strokeJoin="round"
+          strokeWidth={glowWidth}
+          color={GUIDE_COLOR}
+          opacity={SELECTION_GLOW_OPACITY}
+        />
+        <Path path={selection} style="stroke" strokeJoin="round" strokeWidth={ringWidth} color={GUIDE_COLOR} />
+      </Group>
       <Path path={lasso} style="stroke" strokeWidth={guideWidth} color={GUIDE_COLOR}>
         <DashPathEffect intervals={dashes} />
       </Path>

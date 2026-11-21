@@ -58,6 +58,7 @@ export function deleteSelection(ctx: Pick<ToolContext, 'doc' | 'history' | 'sele
 /** Lasso select, multi-select and move tool. */
 export class LassoTool implements Tool {
   readonly name = 'lasso';
+  readonly usesSelection = true;
   /**
    * Fires whenever `dragOffset` changes (including back to null), so the
    * renderer can redraw the selection without polling.

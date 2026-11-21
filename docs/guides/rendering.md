@@ -34,7 +34,7 @@ When the active tool exposes `dragChanged` (the `LassoTool` does), the controlle
 
 ## Live overlay
 
-`OverlayLayer` draws the transient feedback inside the camera transform: the live stroke, the lasso polyline, the eraser circle and the selection rectangle. Each is a shared `SkPath` rebuilt from `engine.overlay.state` or `engine.selection.bounds(doc)`; drawing does not re-render the layer. Guide widths are divided by `camera.scale` to stay constant on screen.
+`OverlayLayer` draws the transient feedback inside the camera transform: the live stroke, the lasso polyline, the eraser circle and the selection outline. The outline follows the ink of each selected stroke (a thin line with a soft band around it); other objects, such as pages, get their bounds rectangle. Each is a shared `SkPath` rebuilt from `engine.overlay.state` or the selected objects; drawing does not re-render the layer. Guide widths are divided by `camera.scale` to stay constant on screen.
 
 The live stroke is derived on the UI thread from the shared `InkState` in `liveInk.ts`. `OverlayLayer` mirrors `PenTool`'s live stroke into that state and clears it on commit or cancel. If the UI thread already started the stroke (its key is in `uiOwnedInkKeys(engine)`), only the clear runs.
 

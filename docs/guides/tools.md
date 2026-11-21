@@ -28,7 +28,7 @@ The rule that keeps undo correct: a tool never calls `doc.addObject` or any othe
 
 ## Selection
 
-`Selection` is an ordered set of selected object ids. `set`, `add`, and `clear` fire `changed`; `objects(doc)` resolves ids to objects that still exist and `bounds(doc)` unions their bounds. The AI harness reads it; tools move or delete it.
+`Selection` is an ordered set of selected object ids. `set`, `add`, and `clear` fire `changed`; `objects(doc)` resolves ids to objects that still exist and `bounds(doc)` unions their bounds. The AI harness reads it; tools move or delete it. A tool that works on the selection sets `usesSelection`; `engine.setTool` clears the selection when the new tool does not, so switching from the lasso to the pen deselects.
 
 ## The three tools
 
