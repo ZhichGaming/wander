@@ -66,6 +66,11 @@ export interface ToolContext {
 export interface Tool {
   /** Stable name for UI and debugging, e.g. "pen". */
   readonly name: string;
+  /**
+   * True for tools that work on the selection. Switching to any other tool
+   * clears the selection, so nothing stays selected that the tool can't act on.
+   */
+  readonly usesSelection?: boolean;
   /** A contact went down. */
   onDown(e: PointerInput, ctx: ToolContext): void;
   /**

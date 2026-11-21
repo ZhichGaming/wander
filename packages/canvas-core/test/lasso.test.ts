@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { CanvasEngine, CreateObjects, Stroke, DEFAULT_PEN_STYLE, type PointerInput } from '../src';
+import { CanvasEngine, CreateObjects, PenTool, Stroke, DEFAULT_PEN_STYLE, type PointerInput } from '../src';
 import { pointInPolygon, polygonBounds } from '../src/math/polygon';
 import { deleteSelection, LassoTool } from '../src/tools/LassoTool';
 
@@ -66,6 +66,15 @@ describe('LassoTool', () => {
     // Each stroke spans x 0..40; x <= 25 covers 3 of its 5 points.
     expect(engine.selection.items).toEqual([ids[0], ids[1]]);
     expect(engine.overlay.state.lasso).toBeNull();
+  });
+
+  it('clears the selection when switching to a tool that does not use it', () => {
+    const { engine, ids } = setup();
+    lassoBox(engine, -10, -10, 50, 10);
+    engine.setTool(new LassoTool());
+    expect(engine.selection.items).toEqual([ids[0]]);
+    engine.setTool(new PenTool());
+    expect(engine.selection.size).toBe(0);
   });
 
   it('does not select a stroke with only a minority of points inside', () => {
